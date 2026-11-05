@@ -317,7 +317,13 @@ theorem UniformlyEnumerable.mixture_enumerable
     (mixture ν w).Enumerable := by
   sorry
 
-/-- LSC on `ℕ → ℝ≥0∞` is closed under scaling by a dyadic constant. -/
+/-- LSC on `ℕ → ℝ≥0∞` is closed under scaling by a dyadic constant.
+
+Sketch: if `φ_f` is the level-`n` approximant for `f`, then
+`fun i k => if b ≤ k then a * φ_f i (k - b) else 0` is a level-`k`
+approximant for `dyadic a b * f i`. Shifting the stage by `b` preserves
+monotonicity (both numerator and denominator rescale together) and the
+supremum. Primrec + ENNReal supremum work left as follow-on. -/
 theorem LowerSemicomputable.dyadic_mul {f : ℕ → ℝ≥0∞}
     (hf : LowerSemicomputable f) (a b : ℕ) :
     LowerSemicomputable (fun i => dyadic a b * f i) := by
@@ -483,7 +489,20 @@ theorem mixtureClass_eq_universalMixtures
     (hν_univ : ContainsAllUniversalMixtures ν) :
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
   apply Set.eq_of_subset_of_subset
-  · -- ⊆: any mixture over ν is a UM. Interleaving construction, needs some UM.
+  · -- ⊆: any mixture over ν is a UM.
+    -- The paper's interleaving construction (ALT format.tex L425–428): take
+    -- any UM ξ, locate it in ν at index `i_ξ`, build `ν'` that alternates
+    -- `ν` (skipping index `i_ξ`) with `ν_ξ` (ξ's own enumeration), and
+    -- assign `w'` so that `mixture ν' w' = mixture ν w_c`. `ν'` contains
+    -- every enumerable semimeasure because `ν_ξ` does; the resulting mixture
+    -- is therefore a UM.
+    -- The construction NEEDS a seed UM `ξ`. From the current hypotheses
+    -- this is not derivable: `ContainsAllUniversalMixtures ν` is vacuous
+    -- when `{ξ | IsUniversalMixture ξ}` is empty. Wood et al.'s Lemma 6
+    -- (there is an enumeration of all enumerable semimeasures) supplies
+    -- this externally; in Lean that lemma is a `WoodInterface` or an
+    -- explicit `∃ ξ, IsUniversalMixture ξ` hypothesis, neither of which is
+    -- in the current signature. See RUN-REPORT for the fix needed.
     rintro c ⟨w_c, rfl⟩
     sorry
   · -- ⊇: any UM is a mixture over ν. The paper's δ-construction.
