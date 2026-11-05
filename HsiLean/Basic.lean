@@ -9,7 +9,8 @@ import Mathlib.Analysis.SpecificLimits.Basic
 # Lower semicomputability and semimeasures
 
 Building toward `thm:enums-of-ums=ums` ("HSI = SolInd", see
-`hsi-solind-paper/arXiv version 1.tex`).
+`hsi-solind-paper/arXiv version 1.tex`; current version:
+`Documents\PIBBSS\hsi\alt2027-template\ALT format.tex`, theorem at L416–443).
 
 ## Why dyadic approximants rather than `ℚ`
 
@@ -177,11 +178,26 @@ theorem le_mixture (ν : ℕ → Semimeasure) (w : Weights) (i : ℕ) (x : List 
     w i * ν i x ≤ mixture ν w x :=
   ENNReal.le_tsum i
 
+/-- `ν` is an *effective* enumeration of enumerable semimeasures: one computable
+procedure approximates `ν i x` from below for every index `i` and string `x`
+at once. This is the standard AIT meaning of "an enumeration of enumerable
+semimeasures".
+
+The pointwise version (`∀ i, (ν i).Enumerable`) is too weak: there are
+uncountably many non-effective enumerations, and a mixture over one need not be
+lower-semicomputable. The spine theorem's `⊇` direction needs the mixture `c`
+over `ν` to be enumerable (so that it appears in `ξ`'s own enumeration), and
+that requires this uniform version. (Nathan's decision, 2026-11-05, after the
+2026-11-04 agent run.) -/
+def UniformlyEnumerable (ν : ℕ → Semimeasure) : Prop :=
+  LowerSemicomputable (fun p : ℕ × List Bool => ν p.1 p.2)
+
 /-- `ξ` is a *universal mixture* (WSH Def 8): a mixture, with lower-semicomputable
-weights, over an enumeration containing *every* enumerable semimeasure. -/
+weights, over an *effective* enumeration containing *every* enumerable
+semimeasure. -/
 def IsUniversalMixture (ξ : Semimeasure) : Prop :=
   ∃ (ν : ℕ → Semimeasure) (w : Weights),
-    (∀ i, (ν i).Enumerable) ∧
+    UniformlyEnumerable ν ∧
     (∀ μ : Semimeasure, μ.Enumerable → ∃ i, ν i = μ) ∧
     ξ = mixture ν w
 
@@ -260,8 +276,8 @@ auditable. -/
 structure WoodInterface where
   /-- The enumeration. -/
   enum : ℕ → Semimeasure
-  /-- Every listed semimeasure is enumerable. -/
-  enum_enumerable : ∀ i, (enum i).Enumerable
+  /-- The listing is effective: uniformly lower-semicomputable in index and string. -/
+  enum_enumerable : UniformlyEnumerable enum
   /-- Every enumerable semimeasure is listed. -/
   enum_complete : ∀ μ : Semimeasure, μ.Enumerable → ∃ i, enum i = μ
 
@@ -272,9 +288,14 @@ theorem WoodInterface.exists_universalMixture (W : WoodInterface) :
   ⟨mixture W.enum geometricWeights,
     W.enum, geometricWeights, W.enum_enumerable, W.enum_complete, rfl⟩
 
-/-- **The spine theorem**, `thm:enums-of-ums=ums`: for any enumeration of
-enumerable semimeasures containing every universal mixture, the class of
+/-- **The spine theorem**, `thm:enums-of-ums=ums`: for any effective enumeration
+of enumerable semimeasures containing every universal mixture, the class of
 mixtures over it is exactly the class of universal mixtures.
+
+Proof to formalise: the paper's own, `ALT format.tex` L416–443 (the ⊆ direction
+interleaves `ν` with `ξ`'s enumeration; the ⊇ direction is the δ-construction,
+which uses that the mixture `c` over `ν` is enumerable, hence uniform
+enumerability of `ν`).
 
 Everything the paper's equality side rests on collapses out of this —
 `cor:hsi-domain-equivalence`, `cor:um=umum=solind=hsi`, and so HSI = SolInd.
@@ -282,7 +303,7 @@ Everything the paper's equality side rests on collapses out of this —
 NOT YET PROVED. See the note below on what it needs. -/
 theorem mixtureClass_eq_universalMixtures
     (ν : ℕ → Semimeasure)
-    (hν_enum : ∀ i, (ν i).Enumerable)
+    (hν_enum : UniformlyEnumerable ν)
     (hν_univ : ContainsAllUniversalMixtures ν) :
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
   sorry
