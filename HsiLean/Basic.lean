@@ -288,25 +288,284 @@ theorem WoodInterface.exists_universalMixture (W : WoodInterface) :
   ⟨mixture W.enum geometricWeights,
     W.enum, geometricWeights, W.enum_enumerable, W.enum_complete, rfl⟩
 
+/-! ### LSC closure lemmas used by the spine theorem
+
+These isolate the three computability facts the δ-construction needs:
+* a mixture over a uniformly enumerable family is enumerable (so that `c` can
+  appear in `ξ`'s own enumeration — the 2026-11-05 hinge);
+* LSC is closed under scaling by a dyadic constant and under adding a
+  dyadic bump at a single index (the δ-reweighting).
+
+These three facts are standard effectivity closures; they are isolated here so
+the mathematical structure of the spine theorem stays visible. -/
+
+/-- The approximant function witnessing LSC of a mixture: at stage `k`, use the
+`(k/2)`-level approximations of both the weights and the semimeasure family,
+summing the first `k/2` terms, then lift from level `2*(k/2)` to level `k`. -/
+private noncomputable def mixtureApprox
+    (φ_w : ℕ → ℕ → ℕ) (φ_ν : ℕ × List Bool → ℕ → ℕ)
+    (x : List Bool) (k : ℕ) : ℕ :=
+  let m := k / 2
+  let s := (List.range m).foldr (fun i acc => acc + φ_w i m * φ_ν (i, x) m) 0
+  s * 2 ^ (k - 2 * m)
+
+/-- Mixture over a uniformly enumerable family (with LSC weights) is enumerable.
+Needed by the ⊇ direction: the witness mixture `c := mixture ν geometricWeights`
+has to be enumerable so it appears in `ξ`'s own enumeration. -/
+theorem UniformlyEnumerable.mixture_enumerable
+    {ν : ℕ → Semimeasure} (hν : UniformlyEnumerable ν) (w : Weights) :
+    (mixture ν w).Enumerable := by
+  sorry
+
+/-- LSC on `ℕ → ℝ≥0∞` is closed under scaling by a dyadic constant. -/
+theorem LowerSemicomputable.dyadic_mul {f : ℕ → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (a b : ℕ) :
+    LowerSemicomputable (fun i => dyadic a b * f i) := by
+  sorry
+
+/-- LSC on `ℕ → ℝ≥0∞` is closed under adding a dyadic constant at a single index. -/
+theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (i₀ a b : ℕ) :
+    LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) := by
+  sorry
+
+/-- LSC on `ℕ → ℝ≥0∞` is closed under subtracting a dyadic constant at a single
+index, provided the function dominates the constant at that index. -/
+theorem LowerSemicomputable.sub_indicator_dyadic {f : ℕ → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (i₀ a b : ℕ) (h : dyadic a b ≤ f i₀) :
+    LowerSemicomputable (fun i => f i - (if i = i₀ then dyadic a b else 0)) := by
+  sorry
+
+/-! ### δ-construction weight transformations
+
+The spine theorem's ⊇ direction builds two auxiliary `Weights`:
+* `wShift` builds `w^(ξ)'` — weights for the new UM `ξ'`.
+* `wCombine` builds `w^(c)'` — weights for the final mixture over `ν`.
+Separating these keeps the main theorem readable.
+-/
+
+/-- `w^(ξ)' (j) = (w_ξ j - δ·[j = i_c]) / (1 - δ)`. -/
+private noncomputable def wShiftFun
+    (w_ξ : Weights) (i_c : ℕ) (δ : ℝ≥0∞) : ℕ → ℝ≥0∞ :=
+  fun j => (w_ξ j - (if j = i_c then δ else 0)) / (1 - δ)
+
+/-- `w^(c)' (i) = δ · w_c(i) + (1-δ)·[i = i_ξ']`. -/
+private noncomputable def wCombineFun
+    (w_c : Weights) (i_ξ' : ℕ) (δ : ℝ≥0∞) : ℕ → ℝ≥0∞ :=
+  fun i => δ * w_c i + (if i = i_ξ' then 1 - δ else 0)
+
+/-- Fundamental identity: `(1-δ)·w^(ξ)'(j) + δ·[j = i_c] = w_ξ(j)`.
+
+This is what lets us expand `(1-δ) ξ' + δ (ν_ξ i_c) = mixture ν_ξ w_ξ`
+pointwise, without any ENNReal subtraction surgery in the main proof. -/
+theorem wShiftFun_recomp
+    (w_ξ : Weights) (i_c : ℕ) {δ : ℝ≥0∞}
+    (hδ_le : δ ≤ w_ξ i_c) (hδ_lt_one : δ < 1) (j : ℕ) :
+    (1 - δ) * wShiftFun w_ξ i_c δ j
+      + (if j = i_c then δ else 0) = w_ξ j := by
+  unfold wShiftFun
+  have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
+  have h1sub_ne_zero : 1 - δ ≠ 0 := h1sub_pos.ne'
+  have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+  split_ifs with hj
+  · subst hj
+    rw [ENNReal.mul_div_cancel h1sub_ne_zero h1sub_ne_top]
+    exact tsub_add_cancel_of_le hδ_le
+  · simp only [tsub_zero, add_zero]
+    exact ENNReal.mul_div_cancel h1sub_ne_zero h1sub_ne_top
+
+/-- `wShift` as a `Weights`. Takes `δ : ℝ≥0∞` with the required constraints.
+LSC is sorried — it is a standard closure property but costs an
+approximant-level computability argument that is orthogonal to the spine
+theorem's mathematical content. -/
+private noncomputable def wShift
+    (w_ξ : Weights) (i_c : ℕ) {δ : ℝ≥0∞}
+    (hδ_pos : 0 < δ) (hδ_lt : δ < w_ξ i_c) (hδ_lt_one : δ < 1) : Weights where
+  toFun := wShiftFun w_ξ i_c δ
+  lsc := sorry
+  pos := by
+    intro j
+    unfold wShiftFun
+    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
+    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    rw [ENNReal.div_pos_iff]
+    refine ⟨?_, h1sub_ne_top⟩
+    split_ifs with hj
+    · subst hj
+      rw [Ne, tsub_eq_zero_iff_le]
+      push_neg
+      exact hδ_lt
+    · simp only [tsub_zero]
+      exact (w_ξ.pos j).ne'
+  tsum_le_one := by
+    -- ∑ wShiftFun j = (∑ (w_ξ j - δ·[j=i_c])) / (1-δ) ≤ 1 since
+    -- ∑ (w_ξ j - δ·[j=i_c]) = (∑ w_ξ j) - δ ≤ 1 - δ.
+    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
+    have h1sub_ne_zero : 1 - δ ≠ 0 := h1sub_pos.ne'
+    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    have hbump_le : (fun j : ℕ => if j = i_c then δ else 0) ≤ fun j => w_ξ j := by
+      intro j
+      show (if j = i_c then δ else 0) ≤ w_ξ j
+      split_ifs with hj
+      · subst hj; exact hδ_lt.le
+      · exact bot_le
+    have hbump_sum :
+        (∑' j : ℕ, (if j = i_c then δ else 0)) = δ := by
+      rw [tsum_eq_single i_c (fun j hj => by rw [if_neg hj])]
+      simp
+    have hbump_sum_ne_top :
+        (∑' j : ℕ, (if j = i_c then δ else 0)) ≠ ⊤ := by
+      rw [hbump_sum]
+      exact ne_top_of_le_ne_top one_ne_top hδ_lt_one.le
+    -- Factor out division: ∑ (a/c) = (∑ a) / c  via tsum_mul_right.
+    have hsum_eq : (∑' j, wShiftFun w_ξ i_c δ j)
+        = (∑' j, (w_ξ j - (if j = i_c then δ else 0))) / (1 - δ) := by
+      unfold wShiftFun
+      simp_rw [div_eq_mul_inv]
+      rw [ENNReal.tsum_mul_right]
+    rw [hsum_eq, ENNReal.div_le_iff h1sub_ne_zero h1sub_ne_top, one_mul]
+    rw [ENNReal.tsum_sub hbump_sum_ne_top hbump_le, hbump_sum]
+    exact tsub_le_tsub w_ξ.tsum_le_one le_rfl
+
+/-- `wCombine` as a `Weights`. LSC is sorried for the same reason as `wShift`. -/
+private noncomputable def wCombine
+    (w_c : Weights) (i_ξ' : ℕ) {δ : ℝ≥0∞}
+    (hδ_pos : 0 < δ) (hδ_lt_one : δ < 1) : Weights where
+  toFun := wCombineFun w_c i_ξ' δ
+  lsc := sorry
+  pos := by
+    intro i
+    unfold wCombineFun
+    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
+    have hterm_pos : 0 < δ * w_c i := ENNReal.mul_pos hδ_pos.ne' (w_c.pos i).ne'
+    split_ifs with hi
+    · exact lt_of_lt_of_le hterm_pos le_self_add
+    · rw [add_zero]; exact hterm_pos
+  tsum_le_one := by
+    -- ∑' i, (δ·w_c i + [i=i_ξ']·(1-δ)) = δ·∑ w_c + (1-δ) ≤ δ + (1-δ) = 1.
+    unfold wCombineFun
+    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    rw [ENNReal.tsum_add]
+    rw [ENNReal.tsum_mul_left]
+    rw [show (∑' i : ℕ, (if i = i_ξ' then 1 - δ else 0)) = 1 - δ by
+      rw [tsum_eq_single i_ξ' (fun j hj => by rw [if_neg hj])]; simp]
+    calc δ * (∑' i, w_c i) + (1 - δ)
+        ≤ δ * 1 + (1 - δ) := by gcongr; exact w_c.tsum_le_one
+      _ = δ + (1 - δ) := by rw [mul_one]
+      _ = 1 := by
+            rw [add_tsub_cancel_of_le hδ_lt_one.le]
+
 /-- **The spine theorem**, `thm:enums-of-ums=ums`: for any effective enumeration
 of enumerable semimeasures containing every universal mixture, the class of
 mixtures over it is exactly the class of universal mixtures.
 
-Proof to formalise: the paper's own, `ALT format.tex` L416–443 (the ⊆ direction
-interleaves `ν` with `ξ`'s enumeration; the ⊇ direction is the δ-construction,
-which uses that the mixture `c` over `ν` is enumerable, hence uniform
-enumerability of `ν`).
+Proof structure (paper's own, `ALT format.tex` L416–443):
 
-Everything the paper's equality side rests on collapses out of this —
-`cor:hsi-domain-equivalence`, `cor:um=umum=solind=hsi`, and so HSI = SolInd.
+* ⊇ direction (δ-construction, lines 430–439): the mixture
+  `c := mixture ν geometricWeights` is enumerable (uniform enumerability of `ν`
+  + LSC weights), so `c` appears in `ξ`'s own enumeration at some index `i_c`.
+  Get a dyadic `δ` with `0 < δ < w_ξ(i_c)`. Build `ξ'` by shifting `δ` off
+  `w_ξ(i_c)` and rescaling by `(1-δ)⁻¹`; `ξ'` is a UM and so lives in `ν` at
+  some `i_ξ'`. Then the weight `w'(i) = δ w_c(i) + (1-δ)·[i = i_ξ']` over `ν`
+  gives back `ξ`. The pointwise verification uses only
+  `(1-δ) w^(ξ)'(j) + δ·[j = i_c] = w_ξ(j)` (`wShiftFun_recomp`), no ENNReal
+  subtraction.
 
-NOT YET PROVED. See the note below on what it needs. -/
+* ⊆ direction (interleaving, lines 425–428): given `c ∈ 𝒞_ν`, interleave `ν`
+  with some UM `ξ`'s enumeration, assigning each `ν_i` its weight in `w^(c)`
+  and each `ξ`-enumerant its weight in `w^(ξ)` scaled by `w^(c)(i_ξ^(ν))`. The
+  seeding requires some UM to exist, which is not derivable from the current
+  hypotheses — hence this direction is left for a follow-on commit.
+-/
 theorem mixtureClass_eq_universalMixtures
     (ν : ℕ → Semimeasure)
     (hν_enum : UniformlyEnumerable ν)
     (hν_univ : ContainsAllUniversalMixtures ν) :
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
-  sorry
+  apply Set.eq_of_subset_of_subset
+  · -- ⊆: any mixture over ν is a UM. Interleaving construction, needs some UM.
+    rintro c ⟨w_c, rfl⟩
+    sorry
+  · -- ⊇: any UM is a mixture over ν. The paper's δ-construction.
+    rintro ξ ⟨ν_ξ, w_ξ, hν_ξ_enum, hν_ξ_complete, rfl⟩
+    -- c := mixture ν geometricWeights; enumerable.
+    have hc_enum : (mixture ν geometricWeights).Enumerable :=
+      hν_enum.mixture_enumerable geometricWeights
+    -- c appears in ν_ξ at some index i_c.
+    obtain ⟨i_c, hi_c⟩ := hν_ξ_complete _ hc_enum
+    -- Positive dyadic q ≤ w_ξ i_c from LSC of w_ξ.
+    obtain ⟨k_q, n_q, hq_pos, hq_le⟩ :=
+      LowerSemicomputable.exists_pos_approx w_ξ.lsc (w_ξ.pos i_c)
+    -- q ≤ w_ξ i_c ≤ 1
+    have hq_le_one : dyadic k_q n_q ≤ 1 :=
+      hq_le.trans ((ENNReal.le_tsum i_c).trans w_ξ.tsum_le_one)
+    -- δ := q/2, with 0 < δ < w_ξ i_c and δ < 1.
+    have hq_ne_top : dyadic k_q n_q ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hq_le_one
+    set δ : ℝ≥0∞ := dyadic k_q n_q / 2 with hδ_def
+    have hδ_pos : 0 < δ := ENNReal.div_pos hq_pos.ne' (by norm_num)
+    have hδ_lt_q : δ < dyadic k_q n_q := ENNReal.half_lt_self hq_pos.ne' hq_ne_top
+    have hδ_lt_wξ : δ < w_ξ i_c := lt_of_lt_of_le hδ_lt_q hq_le
+    have hδ_le_wξ : δ ≤ w_ξ i_c := hδ_lt_wξ.le
+    have hδ_lt_one : δ < 1 := lt_of_lt_of_le hδ_lt_q hq_le_one
+    -- Build w_ξ' and ξ'.
+    let w_ξ' : Weights := wShift w_ξ i_c hδ_pos hδ_lt_wξ hδ_lt_one
+    let ξ' : Semimeasure := mixture ν_ξ w_ξ'
+    have hξ'_um : IsUniversalMixture ξ' :=
+      ⟨ν_ξ, w_ξ', hν_ξ_enum, hν_ξ_complete, rfl⟩
+    obtain ⟨i_ξ', hi_ξ'⟩ := hν_univ _ hξ'_um
+    -- Build w' and verify equality.
+    let w' : Weights := wCombine geometricWeights i_ξ' hδ_pos hδ_lt_one
+    refine ⟨w', ?_⟩
+    apply Semimeasure.ext
+    intro x
+    -- Pointwise equality. Unfold both sides to `∑' i, ... * ν i x`.
+    simp only [mixture_apply]
+    -- Goal: ∑' j, w_ξ j * ν_ξ j x = ∑' i, w' i * ν i x
+    -- Shared target form: δ·(mixture ν geom x) + (1-δ)·(ν i_ξ' x).
+    -- LHS = (1-δ) * (∑ w_ξ' j * ν_ξ j x) + δ * ν_ξ i_c x
+    --     = (1-δ) * ν i_ξ' x       + δ * (mixture ν geom x)
+    -- using hi_ξ' and hi_c.
+    -- RHS = δ * (mixture ν geom x) + (1-δ) * ν i_ξ' x directly.
+    have hLHS : (∑' j, w_ξ j * ν_ξ j x)
+        = (1 - δ) * ν i_ξ' x + δ * (∑' i, geometricWeights i * ν i x) := by
+      calc (∑' j, w_ξ j * ν_ξ j x)
+          = ∑' j, ((1 - δ) * wShiftFun w_ξ i_c δ j
+                   + (if j = i_c then δ else 0)) * ν_ξ j x := by
+            congr 1; funext j
+            rw [wShiftFun_recomp w_ξ i_c hδ_le_wξ hδ_lt_one]
+        _ = (∑' j, (1 - δ) * wShiftFun w_ξ i_c δ j * ν_ξ j x)
+            + ∑' j, (if j = i_c then δ else 0) * ν_ξ j x := by
+            rw [← ENNReal.tsum_add]
+            congr 1; funext j; rw [add_mul]
+        _ = (1 - δ) * (∑' j, wShiftFun w_ξ i_c δ j * ν_ξ j x)
+            + δ * ν_ξ i_c x := by
+            congr 1
+            · rw [← ENNReal.tsum_mul_left]
+              congr 1; funext j; rw [mul_assoc]
+            · rw [tsum_eq_single i_c (fun j hj => by rw [if_neg hj, zero_mul])]
+              rw [if_pos rfl]
+        _ = (1 - δ) * ν i_ξ' x + δ * (∑' i, geometricWeights i * ν i x) := by
+            congr 1
+            · rw [show (∑' j, wShiftFun w_ξ i_c δ j * ν_ξ j x) = ν i_ξ' x from by
+                rw [hi_ξ']; rfl]
+            · rw [show ν_ξ i_c x = (∑' i, geometricWeights i * ν i x) from by
+                rw [hi_c]; rfl]
+    have hRHS : (∑' i, w' i * ν i x)
+        = δ * (∑' i, geometricWeights i * ν i x) + (1 - δ) * ν i_ξ' x := by
+      calc (∑' i, w' i * ν i x)
+          = ∑' i, (δ * geometricWeights i
+                   + (if i = i_ξ' then 1 - δ else 0)) * ν i x := rfl
+        _ = (∑' i, δ * geometricWeights i * ν i x)
+            + ∑' i, (if i = i_ξ' then 1 - δ else 0) * ν i x := by
+            rw [← ENNReal.tsum_add]
+            congr 1; funext i; rw [add_mul]
+        _ = δ * (∑' i, geometricWeights i * ν i x) + (1 - δ) * ν i_ξ' x := by
+            congr 1
+            · rw [← ENNReal.tsum_mul_left]
+              congr 1; funext i; rw [mul_assoc]
+            · rw [tsum_eq_single i_ξ' (fun j hj => by rw [if_neg hj, zero_mul])]
+              rw [if_pos rfl]
+    rw [hLHS, hRHS, add_comm]
 
 /-
 TODO, roughly in dependency order.
