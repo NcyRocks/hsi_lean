@@ -303,6 +303,10 @@ Everything the paper's equality side rests on collapses out of this —
 NOT YET PROVED. See the note below on what it needs. -/
 theorem mixtureClass_eq_universalMixtures
     (ν : ℕ → Semimeasure)
+    -- Universal mixtures exist (Wood et al.; the paper takes it for granted). Without it the
+    -- statement is false: `hν_univ` would be vacuous while `MixtureClass ν` is non-empty.
+    -- (Nathan's decision, 2026-11-05, after the 2026-11-05 agent run.)
+    (W : WoodInterface)
     (hν_enum : UniformlyEnumerable ν)
     (hν_univ : ContainsAllUniversalMixtures ν) :
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
