@@ -352,7 +352,15 @@ theorem LowerSemicomputable.dyadic_mul {f : ℕ → ℝ≥0∞}
   obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
   refine ⟨fun i n => if b ≤ n then a * φ i (n - b) else 0, ?_, ?_, ?_⟩
   · -- Computability: standard Primrec/Computable construction.
-    sorry
+    have h_cond : Computable (fun p : ℕ × ℕ => decide (b ≤ p.2)) :=
+      (Primrec.nat_le.decide.comp (Primrec.const b) Primrec.snd).to_comp
+    have h_phi : Computable (fun p : ℕ × ℕ => φ p.1 (p.2 - b)) :=
+      hφ_comp.comp (Computable.pair Computable.fst
+        (Primrec.nat_sub.to_comp.comp Computable.snd (Computable.const b)))
+    have h_then : Computable (fun p : ℕ × ℕ => a * φ p.1 (p.2 - b)) :=
+      Primrec.nat_mul.to_comp.comp (Computable.const a) h_phi
+    exact (Computable.cond h_cond h_then (Computable.const 0)).of_eq
+      fun p => by simp [Bool.cond_decide]
   · -- Monotonicity
     intro i m n hmn
     simp only
@@ -395,7 +403,18 @@ private theorem lsc_indicator_const (i₀ a b : ℕ) :
     LowerSemicomputable (fun i => if i = i₀ then dyadic a b else 0) := by
   refine ⟨fun i n => if i = i₀ ∧ b ≤ n then a * 2^(n - b) else 0, ?_, ?_, ?_⟩
   · -- Computability: i = i₀ and b ≤ n are decidable; a * 2^(n-b) is Primrec.
-    sorry
+    have h_eq : PrimrecPred (fun p : ℕ × ℕ => p.1 = i₀) :=
+      (Primrec.eq.decide.comp Primrec.fst (Primrec.const i₀)).primrecPred
+    have h_le : PrimrecPred (fun p : ℕ × ℕ => b ≤ p.2) :=
+      (Primrec.nat_le.decide.comp (Primrec.const b) Primrec.snd).primrecPred
+    have h_cond : Computable (fun p : ℕ × ℕ => decide (p.1 = i₀ ∧ b ≤ p.2)) :=
+      (h_eq.and h_le).decide.to_comp
+    have h_then : Computable (fun p : ℕ × ℕ => a * 2 ^ (p.2 - b)) :=
+      Primrec.nat_mul.to_comp.comp (Computable.const a)
+        (Primrec.nat_pow.to_comp.comp (Computable.const 2)
+          (Primrec.nat_sub.to_comp.comp Computable.snd (Computable.const b)))
+    exact (Computable.cond h_cond h_then (Computable.const 0)).of_eq
+      fun p => by simp [Bool.cond_decide]
   · -- Monotonicity
     intro i m n hmn
     simp only
@@ -464,7 +483,19 @@ theorem LowerSemicomputable.sub_indicator_dyadic {f : ℕ → ℝ≥0∞}
   -- The ⨆ achieves equality because φ's approx of f becomes arbitrarily close.
   refine ⟨fun i n => φ i n - (if i = i₀ ∧ b ≤ n then a * 2^(n - b) else 0), ?_, ?_, ?_⟩
   · -- Computability
-    sorry
+    have h_eq : PrimrecPred (fun p : ℕ × ℕ => p.1 = i₀) :=
+      (Primrec.eq.decide.comp Primrec.fst (Primrec.const i₀)).primrecPred
+    have h_le : PrimrecPred (fun p : ℕ × ℕ => b ≤ p.2) :=
+      (Primrec.nat_le.decide.comp (Primrec.const b) Primrec.snd).primrecPred
+    have h_indicator : Computable
+        (fun p : ℕ × ℕ => if p.1 = i₀ ∧ b ≤ p.2 then a * 2 ^ (p.2 - b) else 0) :=
+      (Computable.cond (h_eq.and h_le).decide.to_comp
+        (Primrec.nat_mul.to_comp.comp (Computable.const a)
+          (Primrec.nat_pow.to_comp.comp (Computable.const 2)
+            (Primrec.nat_sub.to_comp.comp Computable.snd (Computable.const b))))
+        (Computable.const 0)).of_eq
+        fun p => by simp [Bool.cond_decide]
+    exact Primrec.nat_sub.to_comp.comp hφ_comp h_indicator
   · -- Monotonicity
     intro i m n hmn
     simp only
