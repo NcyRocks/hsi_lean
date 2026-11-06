@@ -485,6 +485,10 @@ Proof structure (paper's own, `ALT format.tex` L416–443):
 -/
 theorem mixtureClass_eq_universalMixtures
     (ν : ℕ → Semimeasure)
+    -- Universal mixtures exist (Wood et al.; the paper takes it for granted). Without it the
+    -- statement is false: `hν_univ` would be vacuous while `MixtureClass ν` is non-empty.
+    -- (Nathan's decision, 2026-11-05, after the 2026-11-05 agent run.)
+    (W : WoodInterface)
     (hν_enum : UniformlyEnumerable ν)
     (hν_univ : ContainsAllUniversalMixtures ν) :
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
