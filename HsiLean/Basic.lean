@@ -45,6 +45,14 @@ noncomputable def dyadic (k n : ℕ) : ℝ≥0∞ := (k : ℝ≥0∞) / 2 ^ n
 theorem dyadic_add (k l n : ℕ) : dyadic (k + l) n = dyadic k n + dyadic l n := by
   simp [dyadic, ENNReal.add_div]
 
+/-- Halving a dyadic increments the exponent: `dyadic k n / 2 = dyadic k (n+1)`. -/
+theorem dyadic_div_two (k n : ℕ) : dyadic k n / 2 = dyadic k (n + 1) := by
+  unfold dyadic
+  have h0 : (2 : ℝ≥0∞)^n ≠ 0 := by positivity
+  have ht : (2 : ℝ≥0∞)^n ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  simp only [div_eq_mul_inv, pow_succ, mul_assoc]
+  rw [ENNReal.mul_inv (Or.inl h0) (Or.inl ht)]
+
 /-- `f` is lower semicomputable: it is the supremum of a computable monotone
 sequence of dyadic rationals. This is the standard AIT definition (cf. WSH
 Def 8 / semimeasure enumerability), phrased directly rather than via a
@@ -538,7 +546,36 @@ The spine theorem's ⊇ direction builds two auxiliary `Weights`:
 * `wShift` builds `w^(ξ)'` — weights for the new UM `ξ'`.
 * `wCombine` builds `w^(c)'` — weights for the final mixture over `ν`.
 Separating these keeps the main theorem readable.
+
+Note (2026-11-06, Nathan): δ is a *positive dyadic* rather than an abstract
+`ℝ≥0∞`, so that a computable approximant can name it. `wShift` and `wCombine`
+accept `(k_δ b_δ : ℕ)` with δ := `dyadic k_δ b_δ`; `wShiftFun`, `wCombineFun`
+and `wShiftFun_recomp` stay on an abstract `δ` because they only state
+pointwise algebra.
 -/
+
+/-- `dyadic k b + dyadic (2^b - k) b = 1` when `k ≤ 2^b`. The two halves of
+`1 = k/2^b + (2^b - k)/2^b` as ENNReals. -/
+private theorem dyadic_add_complement (k b : ℕ) (hk : k ≤ 2^b) :
+    dyadic k b + dyadic (2^b - k) b = 1 := by
+  unfold dyadic
+  rw [← ENNReal.add_div, ← Nat.cast_add, Nat.add_sub_cancel' hk]
+  push_cast
+  exact ENNReal.div_self (by positivity) (ENNReal.pow_ne_top (by norm_num))
+
+/-- `dyadic k b ≠ ⊤`. -/
+private theorem dyadic_ne_top (k b : ℕ) : dyadic k b ≠ ⊤ := by
+  unfold dyadic
+  exact ENNReal.div_ne_top (ENNReal.natCast_ne_top k) (by positivity)
+
+/-- `1 - dyadic k b = dyadic (2^b - k) b` when `k ≤ 2^b`. Converts the ⅰ-free
+side of the `wCombine` indicator to a dyadic so the existing LSC indicator
+lemma applies. -/
+private theorem one_sub_dyadic (k b : ℕ) (hk : k ≤ 2^b) :
+    (1 : ℝ≥0∞) - dyadic k b = dyadic (2^b - k) b := by
+  have hadd := dyadic_add_complement k b hk
+  have hne : dyadic k b ≠ ⊤ := dyadic_ne_top k b
+  rw [← hadd, ENNReal.add_sub_cancel_left hne]
 
 /-- `w^(ξ)' (j) = (w_ξ j - δ·[j = i_c]) / (1 - δ)`. -/
 private noncomputable def wShiftFun
@@ -570,20 +607,28 @@ theorem wShiftFun_recomp
   · simp only [tsub_zero, add_zero]
     exact ENNReal.mul_div_cancel h1sub_ne_zero h1sub_ne_top
 
-/-- `wShift` as a `Weights`. Takes `δ : ℝ≥0∞` with the required constraints.
-LSC is sorried — it is a standard closure property but costs an
-approximant-level computability argument that is orthogonal to the spine
-theorem's mathematical content. -/
+/-- `wShift` as a `Weights`. Takes `δ := dyadic k_δ b_δ` so that LSC's
+approximant can name δ computably. -/
 private noncomputable def wShift
-    (w_ξ : Weights) (i_c : ℕ) {δ : ℝ≥0∞}
-    (hδ_pos : 0 < δ) (hδ_lt : δ < w_ξ i_c) (hδ_lt_one : δ < 1) : Weights where
-  toFun := wShiftFun w_ξ i_c δ
-  lsc := sorry
+    (w_ξ : Weights) (i_c k_δ b_δ : ℕ)
+    (hδ_pos : 0 < dyadic k_δ b_δ) (hδ_lt : dyadic k_δ b_δ < w_ξ i_c)
+    (hδ_lt_one : dyadic k_δ b_δ < 1) : Weights where
+  toFun := wShiftFun w_ξ i_c (dyadic k_δ b_δ)
+  lsc := by
+    -- Function: j ↦ (w_ξ j - δ·[j=i_c]) / (1-δ), with δ = dyadic k_δ b_δ.
+    -- Factor as: (w_ξ j - δ·[j=i_c]) is LSC by sub_indicator_dyadic.
+    -- Then divide by the fixed positive dyadic (1-δ) = dyadic (2^b_δ - k_δ) b_δ:
+    -- dividing by a positive rational of denominator 2^b and natural numerator
+    -- is multiplication by 2^b (easy: dyadic_mul with b=0, a=2^b)
+    -- then division by the natural numerator — this last step is a general
+    -- LSC closure (f/d for positive natural d is LSC) that has not been
+    -- formalised here.
+    sorry
   pos := by
     intro j
     unfold wShiftFun
-    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
-    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    have h1sub_pos : 0 < 1 - dyadic k_δ b_δ := tsub_pos_of_lt hδ_lt_one
+    have h1sub_ne_top : 1 - dyadic k_δ b_δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
     rw [ENNReal.div_pos_iff]
     refine ⟨?_, h1sub_ne_top⟩
     split_ifs with hj
@@ -596,26 +641,27 @@ private noncomputable def wShift
   tsum_le_one := by
     -- ∑ wShiftFun j = (∑ (w_ξ j - δ·[j=i_c])) / (1-δ) ≤ 1 since
     -- ∑ (w_ξ j - δ·[j=i_c]) = (∑ w_ξ j) - δ ≤ 1 - δ.
-    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
-    have h1sub_ne_zero : 1 - δ ≠ 0 := h1sub_pos.ne'
-    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
-    have hbump_le : (fun j : ℕ => if j = i_c then δ else 0) ≤ fun j => w_ξ j := by
+    have h1sub_pos : 0 < 1 - dyadic k_δ b_δ := tsub_pos_of_lt hδ_lt_one
+    have h1sub_ne_zero : 1 - dyadic k_δ b_δ ≠ 0 := h1sub_pos.ne'
+    have h1sub_ne_top : 1 - dyadic k_δ b_δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    have hbump_le : (fun j : ℕ => if j = i_c then dyadic k_δ b_δ else 0) ≤
+        fun j => w_ξ j := by
       intro j
-      show (if j = i_c then δ else 0) ≤ w_ξ j
+      show (if j = i_c then dyadic k_δ b_δ else 0) ≤ w_ξ j
       split_ifs with hj
       · subst hj; exact hδ_lt.le
       · exact bot_le
     have hbump_sum :
-        (∑' j : ℕ, (if j = i_c then δ else 0)) = δ := by
+        (∑' j : ℕ, (if j = i_c then dyadic k_δ b_δ else 0)) = dyadic k_δ b_δ := by
       rw [tsum_eq_single i_c (fun j hj => by rw [if_neg hj])]
       simp
     have hbump_sum_ne_top :
-        (∑' j : ℕ, (if j = i_c then δ else 0)) ≠ ⊤ := by
+        (∑' j : ℕ, (if j = i_c then dyadic k_δ b_δ else 0)) ≠ ⊤ := by
       rw [hbump_sum]
       exact ne_top_of_le_ne_top one_ne_top hδ_lt_one.le
-    -- Factor out division: ∑ (a/c) = (∑ a) / c  via tsum_mul_right.
-    have hsum_eq : (∑' j, wShiftFun w_ξ i_c δ j)
-        = (∑' j, (w_ξ j - (if j = i_c then δ else 0))) / (1 - δ) := by
+    have hsum_eq : (∑' j, wShiftFun w_ξ i_c (dyadic k_δ b_δ) j)
+        = (∑' j, (w_ξ j - (if j = i_c then dyadic k_δ b_δ else 0))) /
+          (1 - dyadic k_δ b_δ) := by
       unfold wShiftFun
       simp_rw [div_eq_mul_inv]
       rw [ENNReal.tsum_mul_right]
@@ -623,31 +669,61 @@ private noncomputable def wShift
     rw [ENNReal.tsum_sub hbump_sum_ne_top hbump_le, hbump_sum]
     exact tsub_le_tsub w_ξ.tsum_le_one le_rfl
 
-/-- `wCombine` as a `Weights`. LSC is sorried for the same reason as `wShift`. -/
+/-- `wCombine` as a `Weights`. Also takes dyadic `δ = dyadic k_δ b_δ`. LSC is
+discharged by the existing `dyadic_mul` and `lsc_indicator_const` lemmas via
+`one_sub_dyadic`. -/
 private noncomputable def wCombine
-    (w_c : Weights) (i_ξ' : ℕ) {δ : ℝ≥0∞}
-    (hδ_pos : 0 < δ) (hδ_lt_one : δ < 1) : Weights where
-  toFun := wCombineFun w_c i_ξ' δ
-  lsc := sorry
+    (w_c : Weights) (i_ξ' k_δ b_δ : ℕ)
+    (hδ_pos : 0 < dyadic k_δ b_δ) (hδ_lt_one : dyadic k_δ b_δ < 1) : Weights where
+  toFun := wCombineFun w_c i_ξ' (dyadic k_δ b_δ)
+  lsc := by
+    -- δ·w_c + (1-δ)·[·=i_ξ']. The first term is LSC by dyadic_mul applied to
+    -- w_c; the second is LSC because `1 - dyadic k_δ b_δ = dyadic (2^b_δ - k_δ) b_δ`
+    -- (`one_sub_dyadic`) so `lsc_indicator_const` applies. Add them.
+    have hk : k_δ ≤ 2^b_δ := by
+      have hlt : (k_δ : ℝ≥0∞) < (2 : ℝ≥0∞)^b_δ := by
+        have h2b_pos : (0 : ℝ≥0∞) < (2 : ℝ≥0∞)^b_δ := by positivity
+        have h2b_ne_top : (2 : ℝ≥0∞)^b_δ ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+        have := hδ_lt_one
+        unfold dyadic at this
+        rwa [ENNReal.div_lt_iff (Or.inl h2b_pos.ne') (Or.inl h2b_ne_top), one_mul] at this
+      have hlt' : (k_δ : ℝ≥0∞) < ((2^b_δ : ℕ) : ℝ≥0∞) := by push_cast; exact hlt
+      exact_mod_cast hlt'.le
+    have h_eq : (fun i => if i = i_ξ' then (1 : ℝ≥0∞) - dyadic k_δ b_δ else 0) =
+                (fun i => if i = i_ξ' then dyadic (2^b_δ - k_δ) b_δ else 0) := by
+      funext i; split_ifs <;> simp [one_sub_dyadic k_δ b_δ hk]
+    unfold wCombineFun
+    show LowerSemicomputable
+        (fun i => dyadic k_δ b_δ * w_c i + (if i = i_ξ' then (1 : ℝ≥0∞) - dyadic k_δ b_δ else 0))
+    rw [show (fun i => dyadic k_δ b_δ * w_c i + (if i = i_ξ' then (1 : ℝ≥0∞) - dyadic k_δ b_δ else 0)) =
+            (fun i => dyadic k_δ b_δ * w_c i +
+              (if i = i_ξ' then dyadic (2^b_δ - k_δ) b_δ else 0)) by
+      funext i; rw [show (if i = i_ξ' then (1 : ℝ≥0∞) - dyadic k_δ b_δ else 0) =
+              (if i = i_ξ' then dyadic (2^b_δ - k_δ) b_δ else 0) from by
+          split_ifs <;> simp [one_sub_dyadic k_δ b_δ hk]]]
+    exact (w_c.lsc.dyadic_mul k_δ b_δ).add (lsc_indicator_const i_ξ' (2^b_δ - k_δ) b_δ)
   pos := by
     intro i
     unfold wCombineFun
-    have h1sub_pos : 0 < 1 - δ := tsub_pos_of_lt hδ_lt_one
-    have hterm_pos : 0 < δ * w_c i := ENNReal.mul_pos hδ_pos.ne' (w_c.pos i).ne'
+    have h1sub_pos : 0 < 1 - dyadic k_δ b_δ := tsub_pos_of_lt hδ_lt_one
+    have hterm_pos : 0 < dyadic k_δ b_δ * w_c i :=
+      ENNReal.mul_pos hδ_pos.ne' (w_c.pos i).ne'
     split_ifs with hi
     · exact lt_of_lt_of_le hterm_pos le_self_add
     · rw [add_zero]; exact hterm_pos
   tsum_le_one := by
     -- ∑' i, (δ·w_c i + [i=i_ξ']·(1-δ)) = δ·∑ w_c + (1-δ) ≤ δ + (1-δ) = 1.
     unfold wCombineFun
-    have h1sub_ne_top : 1 - δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top tsub_le_self
+    have h1sub_ne_top : 1 - dyadic k_δ b_δ ≠ ⊤ :=
+      ne_top_of_le_ne_top one_ne_top tsub_le_self
     rw [ENNReal.tsum_add]
     rw [ENNReal.tsum_mul_left]
-    rw [show (∑' i : ℕ, (if i = i_ξ' then 1 - δ else 0)) = 1 - δ by
+    rw [show (∑' i : ℕ, (if i = i_ξ' then 1 - dyadic k_δ b_δ else 0)) =
+         1 - dyadic k_δ b_δ by
       rw [tsum_eq_single i_ξ' (fun j hj => by rw [if_neg hj])]; simp]
-    calc δ * (∑' i, w_c i) + (1 - δ)
-        ≤ δ * 1 + (1 - δ) := by gcongr; exact w_c.tsum_le_one
-      _ = δ + (1 - δ) := by rw [mul_one]
+    calc dyadic k_δ b_δ * (∑' i, w_c i) + (1 - dyadic k_δ b_δ)
+        ≤ dyadic k_δ b_δ * 1 + (1 - dyadic k_δ b_δ) := by gcongr; exact w_c.tsum_le_one
+      _ = dyadic k_δ b_δ + (1 - dyadic k_δ b_δ) := by rw [mul_one]
       _ = 1 := by
             rw [add_tsub_cancel_of_le hδ_lt_one.le]
 
@@ -714,20 +790,24 @@ theorem mixtureClass_eq_universalMixtures
       hq_le.trans ((ENNReal.le_tsum i_c).trans w_ξ.tsum_le_one)
     -- δ := q/2, with 0 < δ < w_ξ i_c and δ < 1.
     have hq_ne_top : dyadic k_q n_q ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hq_le_one
-    set δ : ℝ≥0∞ := dyadic k_q n_q / 2 with hδ_def
-    have hδ_pos : 0 < δ := ENNReal.div_pos hq_pos.ne' (by norm_num)
-    have hδ_lt_q : δ < dyadic k_q n_q := ENNReal.half_lt_self hq_pos.ne' hq_ne_top
+    -- δ is the dyadic `dyadic k_q (n_q + 1)`, equal to `dyadic k_q n_q / 2` (half of q).
+    set δ : ℝ≥0∞ := dyadic k_q (n_q + 1) with hδ_def
+    have hδ_eq_half : δ = dyadic k_q n_q / 2 := by rw [hδ_def, ← dyadic_div_two]
+    have hδ_pos : 0 < δ := by
+      rw [hδ_eq_half]; exact ENNReal.div_pos hq_pos.ne' (by norm_num)
+    have hδ_lt_q : δ < dyadic k_q n_q := by
+      rw [hδ_eq_half]; exact ENNReal.half_lt_self hq_pos.ne' hq_ne_top
     have hδ_lt_wξ : δ < w_ξ i_c := lt_of_lt_of_le hδ_lt_q hq_le
     have hδ_le_wξ : δ ≤ w_ξ i_c := hδ_lt_wξ.le
     have hδ_lt_one : δ < 1 := lt_of_lt_of_le hδ_lt_q hq_le_one
     -- Build w_ξ' and ξ'.
-    let w_ξ' : Weights := wShift w_ξ i_c hδ_pos hδ_lt_wξ hδ_lt_one
+    let w_ξ' : Weights := wShift w_ξ i_c k_q (n_q + 1) hδ_pos hδ_lt_wξ hδ_lt_one
     let ξ' : Semimeasure := mixture ν_ξ w_ξ'
     have hξ'_um : IsUniversalMixture ξ' :=
       ⟨ν_ξ, w_ξ', hν_ξ_enum, hν_ξ_complete, rfl⟩
     obtain ⟨i_ξ', hi_ξ'⟩ := hν_univ _ hξ'_um
     -- Build w' and verify equality.
-    let w' : Weights := wCombine geometricWeights i_ξ' hδ_pos hδ_lt_one
+    let w' : Weights := wCombine geometricWeights i_ξ' k_q (n_q + 1) hδ_pos hδ_lt_one
     refine ⟨w', ?_⟩
     apply Semimeasure.ext
     intro x
