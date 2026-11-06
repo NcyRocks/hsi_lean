@@ -317,30 +317,189 @@ theorem UniformlyEnumerable.mixture_enumerable
     (mixture ν w).Enumerable := by
   sorry
 
+/-- Auxiliary: `dyadic (a * k) (b + n) = dyadic a b * dyadic k n`. -/
+private theorem dyadic_mul_add (a b k n : ℕ) :
+    dyadic (a * k) (b + n) = dyadic a b * dyadic k n := by
+  simp only [dyadic, pow_add, Nat.cast_mul, div_eq_mul_inv]
+  have hBN : ((2 : ℝ≥0∞) ^ b * (2 : ℝ≥0∞) ^ n)⁻¹ =
+      ((2 : ℝ≥0∞) ^ b)⁻¹ * ((2 : ℝ≥0∞) ^ n)⁻¹ :=
+    ENNReal.mul_inv (Or.inl (pow_ne_zero b (by norm_num)))
+                    (Or.inl (ENNReal.pow_ne_top (by norm_num)))
+  rw [hBN]; ac_rfl
+
+/-- Auxiliary: `if b ≤ n then g (n - b) else 0` has the same iSup as `g`. -/
+private theorem iSup_shift (b : ℕ) (g : ℕ → ℝ≥0∞) :
+    ⨆ n, (if b ≤ n then g (n - b) else 0) = ⨆ k, g k := by
+  apply le_antisymm
+  · apply iSup_le; intro n
+    split_ifs with h
+    · exact le_iSup g (n - b)
+    · exact bot_le
+  · apply iSup_le; intro k
+    have hbkb : b ≤ k + b := Nat.le_add_left b k
+    have hkbb : k + b - b = k := by omega
+    have key := le_iSup (fun n => if b ≤ n then g (n - b) else 0) (k + b)
+    rw [if_pos hbkb, hkbb] at key
+    exact key
+
 /-- LSC on `ℕ → ℝ≥0∞` is closed under scaling by a dyadic constant.
 
-Sketch: if `φ_f` is the level-`n` approximant for `f`, then
-`fun i k => if b ≤ k then a * φ_f i (k - b) else 0` is a level-`k`
-approximant for `dyadic a b * f i`. Shifting the stage by `b` preserves
-monotonicity (both numerator and denominator rescale together) and the
-supremum. Primrec + ENNReal supremum work left as follow-on. -/
+Approximant: `fun i n => if b ≤ n then a * φ i (n - b) else 0`.
+At level n with b ≤ n: `dyadic (a * φ i (n-b)) n = dyadic a b * dyadic (φ i (n-b)) (n-b)`. -/
 theorem LowerSemicomputable.dyadic_mul {f : ℕ → ℝ≥0∞}
     (hf : LowerSemicomputable f) (a b : ℕ) :
     LowerSemicomputable (fun i => dyadic a b * f i) := by
-  sorry
+  obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
+  refine ⟨fun i n => if b ≤ n then a * φ i (n - b) else 0, ?_, ?_, ?_⟩
+  · -- Computability: standard Primrec/Computable construction.
+    sorry
+  · -- Monotonicity
+    intro i m n hmn
+    simp only
+    by_cases hm : b ≤ m
+    · have hn : b ≤ n := hm.trans hmn
+      simp only [if_pos hm, if_pos hn]
+      have hmn' : m - b ≤ n - b := Nat.sub_le_sub_right hmn b
+      have key : ∀ k, b ≤ k → dyadic (a * φ i (k - b)) k =
+          dyadic a b * dyadic (φ i (k - b)) (k - b) := fun k hk => by
+        set km := k - b with hkm_def
+        rw [show k = b + km from (Nat.add_sub_cancel' hk).symm, dyadic_mul_add]
+      rw [key m hm, key n hn]
+      gcongr
+      exact hφ_mono i hmn'
+    · by_cases hn : b ≤ n
+      · simp only [if_neg hm, if_pos hn]
+        simp [dyadic]
+      · simp only [if_neg hm, if_neg hn]
+        simp [dyadic]
+  · -- Supremum
+    intro i
+    have key : ∀ n, dyadic (if b ≤ n then a * φ i (n - b) else 0) n =
+        if b ≤ n then dyadic a b * dyadic (φ i (n - b)) (n - b) else 0 := fun n => by
+      by_cases h : b ≤ n
+      · simp only [if_pos h]
+        set nm := n - b with hnm_def
+        rw [show n = b + nm from (Nat.add_sub_cancel' h).symm, dyadic_mul_add]
+      · simp [if_neg h, dyadic]
+    simp_rw [key]
+    have factor : ∀ n, (if b ≤ n then dyadic a b * dyadic (φ i (n - b)) (n - b) else 0) =
+                       dyadic a b * (if b ≤ n then dyadic (φ i (n - b)) (n - b) else 0) :=
+      fun n => by split_ifs with h <;> simp [mul_zero]
+    simp_rw [factor]
+    rw [← ENNReal.mul_iSup]
+    congr 1
+    exact (iSup_shift b (fun k => dyadic (φ i k) k)).trans (hφ_sup i)
+
+/-- Auxiliary: the constant indicator function `fun i => if i = i₀ then c else 0` is LSC. -/
+private theorem lsc_indicator_const (i₀ a b : ℕ) :
+    LowerSemicomputable (fun i => if i = i₀ then dyadic a b else 0) := by
+  refine ⟨fun i n => if i = i₀ ∧ b ≤ n then a * 2^(n - b) else 0, ?_, ?_, ?_⟩
+  · -- Computability: i = i₀ and b ≤ n are decidable; a * 2^(n-b) is Primrec.
+    sorry
+  · -- Monotonicity
+    intro i m n hmn
+    simp only
+    by_cases hi : i = i₀
+    · by_cases hm : b ≤ m
+      · have hn : b ≤ n := hm.trans hmn
+        simp only [if_pos (And.intro hi hm), if_pos (And.intro hi hn)]
+        have hval : ∀ k, b ≤ k → dyadic (a * 2^(k - b)) k = dyadic a b := fun k hk => by
+          set km := k - b with hkm_def
+          rw [show k = b + km from (Nat.add_sub_cancel' hk).symm, dyadic_mul_add]
+          have hne0 : (2 : ℝ≥0∞) ^ km ≠ 0 := pow_ne_zero km (by norm_num)
+          have hnetop : (2 : ℝ≥0∞) ^ km ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+          simp only [dyadic, Nat.cast_pow, Nat.cast_ofNat, ENNReal.div_self hne0 hnetop, mul_one]
+        rw [hval m hm, hval n hn]
+      · by_cases hn : b ≤ n
+        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
+                     if_pos (And.intro hi hn)]
+          simp [dyadic]
+        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
+                     if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨_, h⟩ => hn h)]
+          simp [dyadic]
+    · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨h, _⟩ => hi h),
+                 if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨h, _⟩ => hi h)]
+      simp [dyadic]
+  · -- Supremum
+    intro i
+    by_cases hi : i = i₀
+    · simp only [hi, true_and, if_true]
+      have hval : ∀ k, b ≤ k → dyadic (a * 2^(k-b)) k = dyadic a b := fun k hk => by
+        set km := k - b with hkm_def
+        rw [show k = b + km from (Nat.add_sub_cancel' hk).symm, dyadic_mul_add]
+        have hne0 : (2 : ℝ≥0∞) ^ km ≠ 0 := pow_ne_zero km (by norm_num)
+        have hnetop : (2 : ℝ≥0∞) ^ km ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+        simp only [dyadic, Nat.cast_pow, Nat.cast_ofNat, ENNReal.div_self hne0 hnetop, mul_one]
+      apply le_antisymm
+      · apply iSup_le; intro n
+        by_cases hbn : b ≤ n
+        · simp only [if_pos hbn, hval n hbn, le_refl]
+        · simp [if_neg hbn, dyadic]
+      · apply le_iSup_of_le b
+        simp only [if_true, hval b (le_refl b), le_refl]
+    · simp only [if_neg hi]
+      apply le_antisymm
+      · apply iSup_le; intro n
+        rw [if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨h, _⟩ => hi h)]
+        simp [dyadic]
+      · exact bot_le
 
 /-- LSC on `ℕ → ℝ≥0∞` is closed under adding a dyadic constant at a single index. -/
 theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
     (hf : LowerSemicomputable f) (i₀ a b : ℕ) :
-    LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) := by
-  sorry
+    LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) :=
+  hf.add (lsc_indicator_const i₀ a b)
 
 /-- LSC on `ℕ → ℝ≥0∞` is closed under subtracting a dyadic constant at a single
 index, provided the function dominates the constant at that index. -/
 theorem LowerSemicomputable.sub_indicator_dyadic {f : ℕ → ℝ≥0∞}
     (hf : LowerSemicomputable f) (i₀ a b : ℕ) (h : dyadic a b ≤ f i₀) :
     LowerSemicomputable (fun i => f i - (if i = i₀ then dyadic a b else 0)) := by
-  sorry
+  obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
+  -- Approximate f i₀ from below, then subtract the fixed dyadic a b.
+  -- Key: for i ≠ i₀, it's just f i (LSC). For i = i₀, it's f i₀ - dyadic a b.
+  -- We compute using the original φ and subtract the rounded dyadic:
+  -- ψ i n = φ i n - (if i = i₀ ∧ b ≤ n then a * 2^(n-b) else 0)
+  -- As ENNReal: dyadic (ψ i n) n ≤ dyadic (φ i n) n - dyadic a b ≤ f i - dyadic a b.
+  -- The ⨆ achieves equality because φ's approx of f becomes arbitrarily close.
+  refine ⟨fun i n => φ i n - (if i = i₀ ∧ b ≤ n then a * 2^(n - b) else 0), ?_, ?_, ?_⟩
+  · -- Computability
+    sorry
+  · -- Monotonicity
+    intro i m n hmn
+    simp only
+    by_cases hi : i = i₀
+    · by_cases hm : b ≤ m
+      · have hn : b ≤ n := hm.trans hmn
+        simp only [if_pos (And.intro hi hm), if_pos (And.intro hi hn)]
+        -- Need: dyadic (φ i m - a*2^(m-b)) m ≤ dyadic (φ i n - a*2^(n-b)) n
+        -- Use: both ≤ f i - dyadic a b (from hφ_mono and hval) → not needed for monotone.
+        -- Direct: dyadic (k - a*2^(k-b)) k = dyadic k k - dyadic a b (when k ≥ a*2^(k-b))
+        -- but Nat sub vs ENNReal sub makes this tricky. Use a sorry.
+        sorry
+      · by_cases hn : b ≤ n
+        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
+                     if_pos (And.intro hi hn), Nat.sub_zero]
+          -- φ i m ≤ φ i n - a*2^(n-b): needs φ i m ≤ φ i n and φ i n ≥ a*2^(n-b).
+          sorry
+        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
+                     if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨_, h⟩ => hn h),
+                     Nat.sub_zero]
+          exact hφ_mono i hmn
+    · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨h, _⟩ => hi h),
+                 if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨h, _⟩ => hi h), Nat.sub_zero]
+      exact hφ_mono i hmn
+  · -- Supremum
+    intro i
+    by_cases hi : i = i₀
+    · subst hi
+      -- For i = i₀: ⨆ n, dyadic (φ i₀ n - if b ≤ n then a*2^(n-b) else 0) n = f i₀ - dyadic a b
+      -- Proof: show ⨆ from below and above.
+      sorry
+    · have hcond : ∀ n, (if i = i₀ ∧ b ≤ n then a * 2 ^ (n - b) else 0) = 0 :=
+        fun n => if_neg (fun ⟨h, _⟩ => hi h)
+      simp_rw [hcond, Nat.sub_zero, if_neg hi, tsub_zero]
+      exact hφ_sup i
 
 /-! ### δ-construction weight transformations
 
