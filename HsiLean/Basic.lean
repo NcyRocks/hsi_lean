@@ -477,67 +477,122 @@ theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
     LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) :=
   hf.add (lsc_indicator_const i₀ a b)
 
+/-- Nat subtraction becomes ENNReal subtraction of dyadics: `dyadic (p - q) n =
+dyadic p n - dyadic q n`. Holds unconditionally: when `q > p`, both sides are 0
+(Nat sub truncates the LHS to 0, ENNReal tsub truncates the RHS to 0). -/
+private theorem dyadic_sub_nat (p q n : ℕ) :
+    dyadic (p - q) n = dyadic p n - dyadic q n := by
+  unfold dyadic
+  rw [ENNReal.natCast_sub]
+  exact ENNReal.sub_div (fun _ _ => by positivity)
+
+/-- `dyadic (a * 2^(n-b)) n = dyadic a b` when `b ≤ n`. Factoring out the shared
+power of 2 in the numerator and denominator. -/
+private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
+    dyadic (a * 2^(n - b)) n = dyadic a b := by
+  unfold dyadic
+  push_cast
+  have hpow_eq : (2 : ℝ≥0∞)^n = (2 : ℝ≥0∞)^b * (2 : ℝ≥0∞)^(n - b) := by
+    rw [← pow_add]; congr 1; omega
+  rw [hpow_eq]
+  have h1 : (2 : ℝ≥0∞) ^ (n - b) ≠ 0 := by positivity
+  have h2 : (2 : ℝ≥0∞) ^ (n - b) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  exact ENNReal.mul_div_mul_right _ _ h1 h2
+
 /-- LSC on `ℕ → ℝ≥0∞` is closed under subtracting a dyadic constant at a single
-index, provided the function dominates the constant at that index. -/
+index, provided the function dominates the constant at that index.
+
+Approximant (for i = i₀): zero when `n < b` (so the subtracted bump is resolved
+at a finer resolution than the dyadic), else `φ i n - a·2^(n-b)` with Nat sub
+(which truncates to 0 when φ doesn't yet dominate the bump). For `i ≠ i₀`, use
+`φ i n` unchanged. -/
 theorem LowerSemicomputable.sub_indicator_dyadic {f : ℕ → ℝ≥0∞}
     (hf : LowerSemicomputable f) (i₀ a b : ℕ) (h : dyadic a b ≤ f i₀) :
     LowerSemicomputable (fun i => f i - (if i = i₀ then dyadic a b else 0)) := by
   obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
-  -- Approximate f i₀ from below, then subtract the fixed dyadic a b.
-  -- Key: for i ≠ i₀, it's just f i (LSC). For i = i₀, it's f i₀ - dyadic a b.
-  -- We compute using the original φ and subtract the rounded dyadic:
-  -- ψ i n = φ i n - (if i = i₀ ∧ b ≤ n then a * 2^(n-b) else 0)
-  -- As ENNReal: dyadic (ψ i n) n ≤ dyadic (φ i n) n - dyadic a b ≤ f i - dyadic a b.
-  -- The ⨆ achieves equality because φ's approx of f becomes arbitrarily close.
-  refine ⟨fun i n => φ i n - (if i = i₀ ∧ b ≤ n then a * 2^(n - b) else 0), ?_, ?_, ?_⟩
+  refine ⟨fun i n =>
+    if i = i₀ then
+      (if b ≤ n then φ i n - a * 2^(n - b) else 0)
+    else φ i n, ?_, ?_, ?_⟩
   · -- Computability
-    have h_eq : PrimrecPred (fun p : ℕ × ℕ => p.1 = i₀) :=
-      (Primrec.eq.decide.comp Primrec.fst (Primrec.const i₀)).primrecPred
-    have h_le : PrimrecPred (fun p : ℕ × ℕ => b ≤ p.2) :=
-      (Primrec.nat_le.decide.comp (Primrec.const b) Primrec.snd).primrecPred
-    have h_indicator : Computable
-        (fun p : ℕ × ℕ => if p.1 = i₀ ∧ b ≤ p.2 then a * 2 ^ (p.2 - b) else 0) :=
-      (Computable.cond (h_eq.and h_le).decide.to_comp
+    have hcond_i : Computable (fun p : ℕ × ℕ => decide (p.1 = i₀)) :=
+      (Primrec.eq.decide.comp Primrec.fst (Primrec.const i₀)).to_comp
+    have hcond_n : Computable (fun p : ℕ × ℕ => decide (b ≤ p.2)) :=
+      (Primrec.nat_le.decide.comp (Primrec.const b) Primrec.snd).to_comp
+    have h_phi : Computable (fun p : ℕ × ℕ => φ p.1 p.2) := hφ_comp
+    have h_sub : Computable (fun p : ℕ × ℕ => φ p.1 p.2 - a * 2^(p.2 - b)) :=
+      Primrec.nat_sub.to_comp.comp h_phi
         (Primrec.nat_mul.to_comp.comp (Computable.const a)
           (Primrec.nat_pow.to_comp.comp (Computable.const 2)
             (Primrec.nat_sub.to_comp.comp Computable.snd (Computable.const b))))
-        (Computable.const 0)).of_eq
-        fun p => by simp [Bool.cond_decide]
-    exact Primrec.nat_sub.to_comp.comp hφ_comp h_indicator
+    have h_then : Computable (fun p : ℕ × ℕ =>
+        if b ≤ p.2 then φ p.1 p.2 - a * 2 ^ (p.2 - b) else 0) :=
+      (Computable.cond hcond_n h_sub (Computable.const 0)).of_eq
+        fun p => by simp
+    exact (Computable.cond hcond_i h_then h_phi).of_eq fun p => by simp
   · -- Monotonicity
     intro i m n hmn
     simp only
     by_cases hi : i = i₀
-    · by_cases hm : b ≤ m
-      · have hn : b ≤ n := hm.trans hmn
-        simp only [if_pos (And.intro hi hm), if_pos (And.intro hi hn)]
-        -- Need: dyadic (φ i m - a*2^(m-b)) m ≤ dyadic (φ i n - a*2^(n-b)) n
-        -- Use: both ≤ f i - dyadic a b (from hφ_mono and hval) → not needed for monotone.
-        -- Direct: dyadic (k - a*2^(k-b)) k = dyadic k k - dyadic a b (when k ≥ a*2^(k-b))
-        -- but Nat sub vs ENNReal sub makes this tricky. Use a sorry.
-        sorry
-      · by_cases hn : b ≤ n
-        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
-                     if_pos (And.intro hi hn), Nat.sub_zero]
-          -- φ i m ≤ φ i n - a*2^(n-b): needs φ i m ≤ φ i n and φ i n ≥ a*2^(n-b).
-          sorry
-        · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨_, h⟩ => hm h),
-                     if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨_, h⟩ => hn h),
-                     Nat.sub_zero]
-          exact hφ_mono i hmn
-    · simp only [if_neg (show ¬(i = i₀ ∧ b ≤ m) from fun ⟨h, _⟩ => hi h),
-                 if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨h, _⟩ => hi h), Nat.sub_zero]
+    · rw [if_pos hi, if_pos hi]
+      have lhs_eq : dyadic (if b ≤ m then φ i m - a * 2^(m - b) else 0) m
+          = if b ≤ m then dyadic (φ i m) m - dyadic a b else 0 := by
+        split_ifs with hbm
+        · rw [dyadic_sub_nat, dyadic_mul_shift a b m hbm]
+        · simp [dyadic]
+      have rhs_eq : dyadic (if b ≤ n then φ i n - a * 2^(n - b) else 0) n
+          = if b ≤ n then dyadic (φ i n) n - dyadic a b else 0 := by
+        split_ifs with hbn
+        · rw [dyadic_sub_nat, dyadic_mul_shift a b n hbn]
+        · simp [dyadic]
+      rw [lhs_eq, rhs_eq]
+      split_ifs with hbm hbn hbn
+      · exact tsub_le_tsub (hφ_mono i hmn) le_rfl
+      · exact absurd (hbm.trans hmn) hbn
+      · exact bot_le
+      · exact le_refl 0
+    · simp only [if_neg hi]
       exact hφ_mono i hmn
   · -- Supremum
     intro i
+    simp only
     by_cases hi : i = i₀
-    · subst hi
-      -- For i = i₀: ⨆ n, dyadic (φ i₀ n - if b ≤ n then a*2^(n-b) else 0) n = f i₀ - dyadic a b
-      -- Proof: show ⨆ from below and above.
-      sorry
-    · have hcond : ∀ n, (if i = i₀ ∧ b ≤ n then a * 2 ^ (n - b) else 0) = 0 :=
-        fun n => if_neg (fun ⟨h, _⟩ => hi h)
-      simp_rw [hcond, Nat.sub_zero, if_neg hi, tsub_zero]
+    · -- i = i₀: rewrite i to i₀ in conclusion via hi
+      rw [hi]
+      -- goal: ⨆ n, dyadic (if i₀ = i₀ then ... else ...) n = f i₀ - dyadic a b
+      conv_lhs =>
+        rw [show (fun n => dyadic
+            (if i₀ = i₀ then (if b ≤ n then φ i₀ n - a * 2^(n-b) else 0) else φ i₀ n) n) =
+          (fun n => dyadic (if b ≤ n then φ i₀ n - a * 2^(n-b) else 0) n) from by
+            funext; rw [if_pos rfl]]
+      have key_eq : ∀ k, dyadic (if b ≤ k then φ i₀ k - a * 2^(k - b) else 0) k
+          = if b ≤ k then dyadic (φ i₀ k) k - dyadic a b else 0 := fun k => by
+        split_ifs with hbk
+        · rw [dyadic_sub_nat, dyadic_mul_shift a b k hbk]
+        · simp [dyadic]
+      simp_rw [key_eq]
+      apply le_antisymm
+      · apply iSup_le; intro n
+        split_ifs with hbn
+        · have hφ_le : dyadic (φ i₀ n) n ≤ f i₀ :=
+            (hφ_sup i₀) ▸ le_iSup (fun m => dyadic (φ i₀ m) m) n
+          exact tsub_le_tsub hφ_le le_rfl
+        · exact bot_le
+      · rw [tsub_le_iff_right, ← hφ_sup i₀]
+        apply iSup_le; intro n
+        set m := max b n
+        have hbm : b ≤ m := le_max_left _ _
+        have hnm : n ≤ m := le_max_right _ _
+        calc dyadic (φ i₀ n) n
+            ≤ dyadic (φ i₀ m) m := hφ_mono i₀ hnm
+          _ ≤ (dyadic (φ i₀ m) m - dyadic a b) + dyadic a b := by
+                rw [tsub_add_eq_max]; exact le_max_left _ _
+          _ = (if b ≤ m then dyadic (φ i₀ m) m - dyadic a b else 0) + dyadic a b := by
+                rw [if_pos hbm]
+          _ ≤ (⨆ k, if b ≤ k then dyadic (φ i₀ k) k - dyadic a b else 0) + dyadic a b := by
+                gcongr
+                exact le_iSup (fun k => if b ≤ k then dyadic (φ i₀ k) k - dyadic a b else 0) m
+    · simp only [if_neg hi, tsub_zero]
       exact hφ_sup i
 
 /-! ### δ-construction weight transformations
