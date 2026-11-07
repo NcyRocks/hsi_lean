@@ -308,13 +308,16 @@ These three facts are standard effectivity closures; they are isolated here so
 the mathematical structure of the spine theorem stays visible. -/
 
 /-- The approximant function witnessing LSC of a mixture: at stage `k`, use the
-`(k/2)`-level approximations of both the weights and the semimeasure family,
-summing the first `k/2` terms, then lift from level `2*(k/2)` to level `k`. -/
+`m := k/2`-level approximations of both the weights and the semimeasure family,
+summing the first `m` terms (via `Nat.rec`), then lift from level `2m` to level
+`k` via a padding factor `2^(k - 2m)`. Stated via `Nat.rec` instead of
+`List.foldr` so `Computable.nat_rec` applies directly. -/
 private noncomputable def mixtureApprox
     (φ_w : ℕ → ℕ → ℕ) (φ_ν : ℕ × List Bool → ℕ → ℕ)
     (x : List Bool) (k : ℕ) : ℕ :=
   let m := k / 2
-  let s := (List.range m).foldr (fun i acc => acc + φ_w i m * φ_ν (i, x) m) 0
+  let s := Nat.rec (motive := fun _ => ℕ) 0
+    (fun j acc => acc + φ_w j m * φ_ν (j, x) m) m
   s * 2 ^ (k - 2 * m)
 
 /-- Mixture over a uniformly enumerable family (with LSC weights) is enumerable.
@@ -323,7 +326,53 @@ has to be enumerable so it appears in `ξ`'s own enumeration. -/
 theorem UniformlyEnumerable.mixture_enumerable
     {ν : ℕ → Semimeasure} (hν : UniformlyEnumerable ν) (w : Weights) :
     (mixture ν w).Enumerable := by
-  sorry
+  obtain ⟨φ_w, hφw_comp, hφw_mono, hφw_sup⟩ := w.lsc
+  obtain ⟨φ_ν, hφν_comp, hφν_mono, hφν_sup⟩ := hν
+  refine ⟨mixtureApprox φ_w φ_ν, ?_, ?_, ?_⟩
+  · -- Computability via Computable.nat_rec over the partial-sum Nat.rec.
+    have h_m : Computable (fun p : List Bool × ℕ => p.2 / 2) :=
+      Primrec.nat_div.to_comp.comp Computable.snd (Computable.const 2)
+    have h_step : Computable₂ (fun (p : List Bool × ℕ) (q : ℕ × ℕ) =>
+        q.2 + φ_w q.1 (p.2 / 2) * φ_ν (q.1, p.1) (p.2 / 2)) := by
+      have h_x : Computable (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => pp.1.1) :=
+        Computable.fst.comp Computable.fst
+      have h_k : Computable (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => pp.1.2) :=
+        Computable.snd.comp Computable.fst
+      have h_j : Computable (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => pp.2.1) :=
+        Computable.fst.comp Computable.snd
+      have h_acc : Computable (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => pp.2.2) :=
+        Computable.snd.comp Computable.snd
+      have h_m' : Computable (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => pp.1.2 / 2) :=
+        Primrec.nat_div.to_comp.comp h_k (Computable.const 2)
+      have h_w : Computable
+          (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => φ_w pp.2.1 (pp.1.2 / 2)) :=
+        hφw_comp.comp (Computable.pair h_j h_m')
+      have h_jx : Computable
+          (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => (pp.2.1, pp.1.1)) :=
+        Computable.pair h_j h_x
+      have h_v : Computable
+          (fun pp : (List Bool × ℕ) × (ℕ × ℕ) => φ_ν (pp.2.1, pp.1.1) (pp.1.2 / 2)) :=
+        hφν_comp.comp (Computable.pair h_jx h_m')
+      have h_prod : Computable
+          (fun pp : (List Bool × ℕ) × (ℕ × ℕ) =>
+            φ_w pp.2.1 (pp.1.2 / 2) * φ_ν (pp.2.1, pp.1.1) (pp.1.2 / 2)) :=
+        Primrec.nat_mul.to_comp.comp h_w h_v
+      exact Primrec.nat_add.to_comp.comp h_acc h_prod
+    have h_rec : Computable (fun p : List Bool × ℕ =>
+        Nat.rec (motive := fun _ => ℕ) 0
+          (fun j acc => acc + φ_w j (p.2 / 2) * φ_ν (j, p.1) (p.2 / 2)) (p.2 / 2)) :=
+      Computable.nat_rec h_m (Computable.const 0) h_step
+    have h_pad : Computable (fun p : List Bool × ℕ => p.2 - 2 * (p.2 / 2)) := by
+      have h2m : Computable (fun p : List Bool × ℕ => 2 * (p.2 / 2)) :=
+        Primrec.nat_mul.to_comp.comp (Computable.const 2) h_m
+      exact Primrec.nat_sub.to_comp.comp Computable.snd h2m
+    have h_pow : Computable (fun p : List Bool × ℕ => (2 : ℕ) ^ (p.2 - 2 * (p.2 / 2))) :=
+      Primrec.nat_pow.to_comp.comp (Computable.const 2) h_pad
+    exact Primrec.nat_mul.to_comp.comp h_rec h_pow
+  · -- Monotonicity (deferred).
+    sorry
+  · -- Supremum = mixture ν w x (deferred).
+    sorry
 
 /-- Auxiliary: `dyadic (a * k) (b + n) = dyadic a b * dyadic k n`. -/
 private theorem dyadic_mul_add (a b k n : ℕ) :
