@@ -696,11 +696,23 @@ private theorem dyadic_ne_top (k b : ℕ) : dyadic k b ≠ ⊤ := by
 /-- `1 - dyadic k b = dyadic (2^b - k) b` when `k ≤ 2^b`. Converts the ⅰ-free
 side of the `wCombine` indicator to a dyadic so the existing LSC indicator
 lemma applies. -/
-private theorem one_sub_dyadic (k b : ℕ) (hk : k ≤ 2^b) :
+private theorem one_sub_dyadic (k b : ℕ) (hk : k ≤ 2 ^ b) :
     (1 : ℝ≥0∞) - dyadic k b = dyadic (2^b - k) b := by
   have hadd := dyadic_add_complement k b hk
   have hne : dyadic k b ≠ ⊤ := dyadic_ne_top k b
   rw [← hadd, ENNReal.add_sub_cancel_left hne]
+
+/-- Division by a positive dyadic reshapes to natural-constant multiplication and
+natural-constant division: `g / dyadic p b = g * 2^b / p`. Lets us split LSC of
+`g / (1-δ)` (with dyadic δ) into `nat_mul` followed by `div_pos_nat`. -/
+private theorem div_dyadic_eq_mul_div (g : ℝ≥0∞) (p b : ℕ) (hp : 0 < p) :
+    g / dyadic p b = g * (2 : ℝ≥0∞)^b / (p : ℝ≥0∞) := by
+  unfold dyadic
+  have hp_ne : (p : ℝ≥0∞) ≠ 0 := Nat.cast_ne_zero.mpr hp.ne'
+  have hp_nt : (p : ℝ≥0∞) ≠ ⊤ := ENNReal.natCast_ne_top _
+  have h2b_ne : (2 : ℝ≥0∞)^b ≠ 0 := by positivity
+  have h2b_nt : (2 : ℝ≥0∞)^b ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  rw [div_eq_mul_inv, ENNReal.inv_div (Or.inr hp_nt) (Or.inr hp_ne), mul_div_assoc]
 
 /-- `w^(ξ)' (j) = (w_ξ j - δ·[j = i_c]) / (1 - δ)`. -/
 private noncomputable def wShiftFun
@@ -740,15 +752,50 @@ private noncomputable def wShift
     (hδ_lt_one : dyadic k_δ b_δ < 1) : Weights where
   toFun := wShiftFun w_ξ i_c (dyadic k_δ b_δ)
   lsc := by
-    -- Function: j ↦ (w_ξ j - δ·[j=i_c]) / (1-δ), with δ = dyadic k_δ b_δ.
-    -- Factor as: (w_ξ j - δ·[j=i_c]) is LSC by sub_indicator_dyadic.
-    -- Then divide by the fixed positive dyadic (1-δ) = dyadic (2^b_δ - k_δ) b_δ:
-    -- dividing by a positive rational of denominator 2^b and natural numerator
-    -- is multiplication by 2^b (easy: dyadic_mul with b=0, a=2^b)
-    -- then division by the natural numerator — this last step is a general
-    -- LSC closure (f/d for positive natural d is LSC) that has not been
-    -- formalised here.
-    sorry
+    -- j ↦ (w_ξ j - δ·[j=i_c]) / (1-δ) with δ = dyadic k_δ b_δ.
+    -- 1-δ = dyadic (2^b_δ - k_δ) b_δ (one_sub_dyadic).
+    -- Division by that dyadic = multiply by 2^b_δ, divide by (2^b_δ - k_δ).
+    -- All three ops (sub_indicator_dyadic, nat_mul, div_pos_nat) are LSC closures.
+    have hk : k_δ ≤ 2^b_δ := by
+      have hlt : (k_δ : ℝ≥0∞) < (2 : ℝ≥0∞)^b_δ := by
+        have h2b_pos : (0 : ℝ≥0∞) < (2 : ℝ≥0∞)^b_δ := by positivity
+        have h2b_ne_top : (2 : ℝ≥0∞)^b_δ ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+        have := hδ_lt_one
+        unfold dyadic at this
+        rwa [ENNReal.div_lt_iff (Or.inl h2b_pos.ne') (Or.inl h2b_ne_top), one_mul] at this
+      have hlt' : (k_δ : ℝ≥0∞) < ((2^b_δ : ℕ) : ℝ≥0∞) := by push_cast; exact hlt
+      exact_mod_cast hlt'.le
+    have hk_lt : k_δ < 2^b_δ := by
+      rcases lt_or_eq_of_le hk with hlt | heq
+      · exact hlt
+      · exfalso
+        have hone : dyadic k_δ b_δ = 1 := by
+          unfold dyadic
+          rw [heq]; push_cast
+          exact ENNReal.div_self (by positivity) (ENNReal.pow_ne_top (by norm_num))
+        exact absurd hone (ne_of_lt hδ_lt_one)
+    have h_pos_nat : 0 < 2^b_δ - k_δ := Nat.sub_pos_of_lt hk_lt
+    have h_sub : LowerSemicomputable
+        (fun j => w_ξ j - (if j = i_c then dyadic k_δ b_δ else 0)) :=
+      LowerSemicomputable.sub_indicator_dyadic w_ξ.lsc i_c k_δ b_δ hδ_lt.le
+    -- Multiply by (2^b_δ : ℕ : ℝ≥0∞). Need to identify (2 : ℝ≥0∞)^b_δ with cast of (2^b_δ : ℕ).
+    have h_mul : LowerSemicomputable
+        (fun j => ((2^b_δ : ℕ) : ℝ≥0∞) *
+          (w_ξ j - (if j = i_c then dyadic k_δ b_δ else 0))) :=
+      h_sub.nat_mul (2^b_δ)
+    have h_div : LowerSemicomputable
+        (fun j => ((2^b_δ : ℕ) : ℝ≥0∞) *
+          (w_ξ j - (if j = i_c then dyadic k_δ b_δ else 0)) /
+          ((2^b_δ - k_δ : ℕ) : ℝ≥0∞)) :=
+      h_mul.div_pos_nat (2^b_δ - k_δ) h_pos_nat
+    -- Show wShiftFun equals the composite form above.
+    have h_cast : ((2^b_δ : ℕ) : ℝ≥0∞) = (2 : ℝ≥0∞)^b_δ := by push_cast; rfl
+    convert h_div using 1
+    funext j
+    unfold wShiftFun
+    rw [one_sub_dyadic k_δ b_δ hk]
+    rw [div_dyadic_eq_mul_div _ (2^b_δ - k_δ) b_δ h_pos_nat]
+    rw [h_cast, mul_comm]
   pos := by
     intro j
     unfold wShiftFun
