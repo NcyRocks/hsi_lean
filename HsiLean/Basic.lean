@@ -307,6 +307,28 @@ These isolate the three computability facts the δ-construction needs:
 These three facts are standard effectivity closures; they are isolated here so
 the mathematical structure of the spine theorem stays visible. -/
 
+/-- Nat subtraction becomes ENNReal subtraction of dyadics: `dyadic (p - q) n =
+dyadic p n - dyadic q n`. Holds unconditionally: when `q > p`, both sides are 0
+(Nat sub truncates the LHS to 0, ENNReal tsub truncates the RHS to 0). -/
+private theorem dyadic_sub_nat (p q n : ℕ) :
+    dyadic (p - q) n = dyadic p n - dyadic q n := by
+  unfold dyadic
+  rw [ENNReal.natCast_sub]
+  exact ENNReal.sub_div (fun _ _ => by positivity)
+
+/-- `dyadic (a * 2^(n-b)) n = dyadic a b` when `b ≤ n`. Factoring out the shared
+power of 2 in the numerator and denominator. -/
+private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
+    dyadic (a * 2^(n - b)) n = dyadic a b := by
+  unfold dyadic
+  push_cast
+  have hpow_eq : (2 : ℝ≥0∞)^n = (2 : ℝ≥0∞)^b * (2 : ℝ≥0∞)^(n - b) := by
+    rw [← pow_add]; congr 1; omega
+  rw [hpow_eq]
+  have h1 : (2 : ℝ≥0∞) ^ (n - b) ≠ 0 := by positivity
+  have h2 : (2 : ℝ≥0∞) ^ (n - b) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  exact ENNReal.mul_div_mul_right _ _ h1 h2
+
 /-- The approximant function witnessing LSC of a mixture: at stage `k`, use the
 `m := k/2`-level approximations of both the weights and the semimeasure family,
 summing the first `m` terms (via `Nat.rec`), then lift from level `2m` to level
@@ -369,8 +391,99 @@ theorem UniformlyEnumerable.mixture_enumerable
     have h_pow : Computable (fun p : List Bool × ℕ => (2 : ℕ) ^ (p.2 - 2 * (p.2 / 2))) :=
       Primrec.nat_pow.to_comp.comp (Computable.const 2) h_pad
     exact Primrec.nat_mul.to_comp.comp h_rec h_pow
-  · -- Monotonicity (deferred).
-    sorry
+  · -- Monotonicity via auxiliary `pSum ℓ m x = ∑_{j<m} φ_w(j,ℓ) * φ_ν((j,x),ℓ)`.
+    -- Key: `pSum ℓ m x * 4 ≤ pSum (ℓ+1) m x` (each term grows ×4 as level ↑ by 1).
+    -- Then `pSum m m x * 4 ≤ pSum (m+1) (m+1) x` (level step + one more term).
+    -- Dyadic step: `dyadic (pSum m m x) (2m) = dyadic (pSum m m x * 4) (2(m+1))
+    --                                       ≤ dyadic (pSum (m+1)(m+1) x) (2(m+1))`.
+    intro x
+    -- Shorthand: partial sum at level ℓ, m terms.
+    let pSum : ℕ → ℕ → ℕ := fun ℓ m =>
+      Nat.rec (motive := fun _ => ℕ) 0
+        (fun j acc => acc + φ_w j ℓ * φ_ν (j, x) ℓ) m
+    -- Nat-step bound φ_w(k, m) · 2 ≤ φ_w(k, m+1) from LSC monotonicity.
+    have h_nat_step : ∀ (ψ : ℕ → ℕ → ℕ) (k m : ℕ),
+        (∀ a, Monotone (fun n => dyadic (ψ a n) n)) →
+        ψ k m * 2 ≤ ψ k (m+1) := by
+      intros ψ k m hψ_mono
+      have hdy : dyadic (ψ k m * 2) (m+1) = dyadic (ψ k m) m := by
+        have h_step : (2 : ℕ) = 2^((m+1) - m) := by rw [show (m+1 - m) = 1 by omega]; rfl
+        rw [h_step]
+        exact dyadic_mul_shift (ψ k m) m (m+1) (by omega)
+      have hdy_le : dyadic (ψ k m * 2) (m+1) ≤ dyadic (ψ k (m+1)) (m+1) := by
+        rw [hdy]; exact hψ_mono k (Nat.le_succ m)
+      have h2 : (2 : ℝ≥0∞)^(m+1) ≠ 0 := by positivity
+      have h2' : (2 : ℝ≥0∞)^(m+1) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+      have hcast : ((ψ k m * 2 : ℕ) : ℝ≥0∞) ≤ ((ψ k (m+1) : ℕ) : ℝ≥0∞) := by
+        unfold dyadic at hdy_le
+        calc ((ψ k m * 2 : ℕ) : ℝ≥0∞)
+            = ((ψ k m * 2 : ℕ) : ℝ≥0∞) / 2^(m+1) * 2^(m+1) :=
+              (ENNReal.div_mul_cancel h2 h2').symm
+          _ ≤ ((ψ k (m+1) : ℕ) : ℝ≥0∞) / 2^(m+1) * 2^(m+1) := by gcongr
+          _ = ((ψ k (m+1) : ℕ) : ℝ≥0∞) := ENNReal.div_mul_cancel h2 h2'
+      exact_mod_cast hcast
+    -- Specialize: φ_w(k, m)·2 ≤ φ_w(k, m+1), analogously for φ_ν (with pair indexing).
+    have h_w_step : ∀ k m, φ_w k m * 2 ≤ φ_w k (m+1) := fun k m =>
+      h_nat_step φ_w k m hφw_mono
+    have h_ν_step : ∀ k m, φ_ν (k, x) m * 2 ≤ φ_ν (k, x) (m+1) := fun k m => by
+      have hν_mono_x : ∀ k, Monotone (fun n => dyadic (φ_ν (k, x) n) n) := fun k' =>
+        hφν_mono (k', x)
+      exact h_nat_step (fun k' n => φ_ν (k', x) n) k m hν_mono_x
+    -- Product grows by 4.
+    have h_prod_step : ∀ k m, φ_w k m * φ_ν (k, x) m * 4 ≤ φ_w k (m+1) * φ_ν (k, x) (m+1) := by
+      intros k m
+      calc φ_w k m * φ_ν (k, x) m * 4
+          = (φ_w k m * 2) * (φ_ν (k, x) m * 2) := by ring
+        _ ≤ φ_w k (m+1) * φ_ν (k, x) (m+1) := Nat.mul_le_mul (h_w_step k m) (h_ν_step k m)
+    -- Partial sum grows by 4 under one level increase.
+    have h_level_step : ∀ ℓ m, pSum ℓ m * 4 ≤ pSum (ℓ+1) m := by
+      intros ℓ m
+      induction m with
+      | zero => simp [pSum]
+      | succ k IH =>
+        show (pSum ℓ k + φ_w k ℓ * φ_ν (k, x) ℓ) * 4
+            ≤ pSum (ℓ+1) k + φ_w k (ℓ+1) * φ_ν (k, x) (ℓ+1)
+        calc (pSum ℓ k + φ_w k ℓ * φ_ν (k, x) ℓ) * 4
+            = pSum ℓ k * 4 + (φ_w k ℓ * φ_ν (k, x) ℓ) * 4 := by ring
+          _ ≤ pSum (ℓ+1) k + φ_w k (ℓ+1) * φ_ν (k, x) (ℓ+1) :=
+            Nat.add_le_add IH (h_prod_step k ℓ)
+    -- Main step: pSum m m · 4 ≤ pSum (m+1) (m+1).
+    have h_main_step : ∀ m, pSum m m * 4 ≤ pSum (m+1) (m+1) := fun m => by
+      calc pSum m m * 4
+          ≤ pSum (m+1) m := h_level_step m m
+        _ ≤ pSum (m+1) (m+1) := Nat.le_add_right _ _
+    -- Dyadic step: dyadic (pSum m m) (2m) ≤ dyadic (pSum (m+1)(m+1)) (2(m+1)).
+    have h_dyadic_step : ∀ m,
+        dyadic (pSum m m) (2 * m) ≤ dyadic (pSum (m+1) (m+1)) (2 * (m+1)) := by
+      intro m
+      have hcast : ((pSum m m * 4 : ℕ) : ℝ≥0∞) ≤ ((pSum (m+1) (m+1) : ℕ) : ℝ≥0∞) := by
+        exact_mod_cast h_main_step m
+      have h_lhs_eq : dyadic (pSum m m) (2 * m) = dyadic (pSum m m * 4) (2 * (m+1)) := by
+        have h4eq : (4 : ℕ) = 2^(2 * (m+1) - 2 * m) := by
+          rw [show (2*(m+1) - 2*m) = 2 by omega]; rfl
+        rw [h4eq]
+        exact (dyadic_mul_shift (pSum m m) (2 * m) (2 * (m+1)) (by omega)).symm
+      rw [h_lhs_eq]
+      unfold dyadic
+      gcongr
+    -- Dyadic value monotone in m.
+    have h_mono_m : Monotone (fun m => dyadic (pSum m m) (2 * m)) := by
+      intros a b hab
+      induction b, hab using Nat.le_induction with
+      | base => exact le_refl _
+      | succ j hj IH => exact IH.trans (h_dyadic_step j)
+    -- Normalize the approximant: dyadic (mixtureApprox _ _ x k) k = dyadic (pSum (k/2) (k/2)) (2*(k/2)).
+    have h_normalize : ∀ k,
+        dyadic (mixtureApprox φ_w φ_ν x k) k = dyadic (pSum (k/2) (k/2)) (2 * (k/2)) := by
+      intro k
+      show dyadic (pSum (k/2) (k/2) * 2^(k - 2 * (k/2))) k
+          = dyadic (pSum (k/2) (k/2)) (2 * (k/2))
+      exact dyadic_mul_shift _ (2 * (k/2)) k (by omega)
+    -- Conclude monotonicity.
+    intros k k' hkk'
+    show dyadic (mixtureApprox φ_w φ_ν x k) k ≤ dyadic (mixtureApprox φ_w φ_ν x k') k'
+    rw [h_normalize k, h_normalize k']
+    exact h_mono_m (Nat.div_le_div_right hkk')
   · -- Supremum = mixture ν w x (deferred).
     sorry
 
@@ -519,28 +632,6 @@ private theorem lsc_indicator_const (i₀ a b : ℕ) :
         rw [if_neg (show ¬(i = i₀ ∧ b ≤ n) from fun ⟨h, _⟩ => hi h)]
         simp [dyadic]
       · exact bot_le
-
-/-- Nat subtraction becomes ENNReal subtraction of dyadics: `dyadic (p - q) n =
-dyadic p n - dyadic q n`. Holds unconditionally: when `q > p`, both sides are 0
-(Nat sub truncates the LHS to 0, ENNReal tsub truncates the RHS to 0). -/
-private theorem dyadic_sub_nat (p q n : ℕ) :
-    dyadic (p - q) n = dyadic p n - dyadic q n := by
-  unfold dyadic
-  rw [ENNReal.natCast_sub]
-  exact ENNReal.sub_div (fun _ _ => by positivity)
-
-/-- `dyadic (a * 2^(n-b)) n = dyadic a b` when `b ≤ n`. Factoring out the shared
-power of 2 in the numerator and denominator. -/
-private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
-    dyadic (a * 2^(n - b)) n = dyadic a b := by
-  unfold dyadic
-  push_cast
-  have hpow_eq : (2 : ℝ≥0∞)^n = (2 : ℝ≥0∞)^b * (2 : ℝ≥0∞)^(n - b) := by
-    rw [← pow_add]; congr 1; omega
-  rw [hpow_eq]
-  have h1 : (2 : ℝ≥0∞) ^ (n - b) ≠ 0 := by positivity
-  have h2 : (2 : ℝ≥0∞) ^ (n - b) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
-  exact ENNReal.mul_div_mul_right _ _ h1 h2
 
 /-- LSC is closed under multiplication by a natural constant. -/
 theorem LowerSemicomputable.nat_mul {f : α → ℝ≥0∞}
