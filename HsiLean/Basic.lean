@@ -1383,21 +1383,167 @@ theorem mixtureClass_eq_universalMixtures
     MixtureClass ν = {ξ | IsUniversalMixture ξ} := by
   apply Set.eq_of_subset_of_subset
   · -- ⊆: any mixture over ν is a UM.
-    -- The paper's interleaving construction (ALT format.tex L425–428): take
-    -- any UM ξ, locate it in ν at index `i_ξ`, build `ν'` that alternates
-    -- `ν` (skipping index `i_ξ`) with `ν_ξ` (ξ's own enumeration), and
-    -- assign `w'` so that `mixture ν' w' = mixture ν w_c`. `ν'` contains
-    -- every enumerable semimeasure because `ν_ξ` does; the resulting mixture
-    -- is therefore a UM.
-    -- The construction NEEDS a seed UM `ξ`. From the current hypotheses
-    -- this is not derivable: `ContainsAllUniversalMixtures ν` is vacuous
-    -- when `{ξ | IsUniversalMixture ξ}` is empty. Wood et al.'s Lemma 6
-    -- (there is an enumeration of all enumerable semimeasures) supplies
-    -- this externally; in Lean that lemma is a `WoodInterface` or an
-    -- explicit `∃ ξ, IsUniversalMixture ξ` hypothesis, neither of which is
-    -- in the current signature. See RUN-REPORT for the fix needed.
+    -- Construction: seed UM `ξ := mixture W.enum geom`, which appears in ν
+    -- at `i_ξ`. Pick dyadic δ ∈ (0, w_c i_ξ) ∩ (0, 1). Interleave ν with
+    -- W.enum. Even weights: `w_c k - δ·[k=i_ξ]` (via `sub_indicator_dyadic`);
+    -- odd weights: `δ · geom(k)` (via `dyadic_mul`). The ξ-contributions
+    -- cancel out so `mixture ν' w' = c`.
     rintro c ⟨w_c, rfl⟩
-    sorry
+    -- 1. Seed UM ξ via W.
+    let ξ : Semimeasure := mixture W.enum geometricWeights
+    have hξ_um : IsUniversalMixture ξ :=
+      ⟨W.enum, geometricWeights, W.enum_enumerable, W.enum_complete, rfl⟩
+    obtain ⟨i_ξ, hi_ξ⟩ := hν_univ ξ hξ_um
+    -- 2. Positive dyadic δ with 0 < δ < w_c i_ξ and δ < 1.
+    obtain ⟨k_q, n_q, hq_pos, hq_le⟩ :=
+      LowerSemicomputable.exists_pos_approx w_c.lsc (w_c.pos i_ξ)
+    have hq_le_one : dyadic k_q n_q ≤ 1 :=
+      hq_le.trans ((ENNReal.le_tsum i_ξ).trans w_c.tsum_le_one)
+    have hq_ne_top : dyadic k_q n_q ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hq_le_one
+    set δ : ℝ≥0∞ := dyadic k_q (n_q + 1) with hδ_def
+    have hδ_eq_half : δ = dyadic k_q n_q / 2 := by rw [hδ_def, ← dyadic_div_two]
+    have hδ_pos : 0 < δ := by
+      rw [hδ_eq_half]; exact ENNReal.div_pos hq_pos.ne' (by norm_num)
+    have hδ_lt_q : δ < dyadic k_q n_q := by
+      rw [hδ_eq_half]; exact ENNReal.half_lt_self hq_pos.ne' hq_ne_top
+    have hδ_lt_wc : δ < w_c i_ξ := lt_of_lt_of_le hδ_lt_q hq_le
+    have hδ_le_wc : δ ≤ w_c i_ξ := hδ_lt_wc.le
+    have hδ_lt_one : δ < 1 := lt_of_lt_of_le hδ_lt_q hq_le_one
+    have hδ_ne_top : δ ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hδ_lt_one.le
+    -- 3. Interleaved family ν'.
+    let ν' : ℕ → Semimeasure := interleaveSm ν W.enum
+    have hν'_enum : UniformlyEnumerable ν' := hν_enum.interleave W.enum_enumerable
+    have hν'_complete : ∀ μ : Semimeasure, μ.Enumerable → ∃ n, ν' n = μ := fun μ hμ => by
+      obtain ⟨k, hk⟩ := W.enum_complete μ hμ
+      exact ⟨2 * k + 1, by rw [show ν' (2 * k + 1) = W.enum k from
+        interleaveSm_odd ν W.enum k, hk]⟩
+    -- 4. Weights components.
+    let wEvenFun : ℕ → ℝ≥0∞ := fun k => w_c k - (if k = i_ξ then δ else 0)
+    let wOddFun : ℕ → ℝ≥0∞ := fun k => δ * geometricWeights k
+    have h_even_lsc : LowerSemicomputable wEvenFun :=
+      w_c.lsc.sub_indicator_dyadic i_ξ k_q (n_q + 1) hδ_le_wc
+    have h_odd_lsc : LowerSemicomputable wOddFun :=
+      geometricWeights.lsc.dyadic_mul k_q (n_q + 1)
+    let w'Fun : ℕ → ℝ≥0∞ := fun n =>
+      if n % 2 = 0 then wEvenFun (n / 2) else wOddFun (n / 2)
+    have h_w'_lsc : LowerSemicomputable w'Fun := h_even_lsc.interleaveNat h_odd_lsc
+    -- 5. Pointwise w_c = wEvenFun + indicator.
+    have hw_c_decomp : ∀ k, w_c k = wEvenFun k + (if k = i_ξ then δ else 0) := fun k => by
+      show w_c k = (w_c k - (if k = i_ξ then δ else 0)) + (if k = i_ξ then δ else 0)
+      by_cases hk : k = i_ξ
+      · rw [if_pos hk]; rw [hk]; exact (tsub_add_cancel_of_le hδ_le_wc).symm
+      · rw [if_neg hk]; simp
+    -- 6. tsum of even side and odd side.
+    have h_indicator_sum : (∑' k : ℕ, (if k = i_ξ then δ else 0)) = δ := by
+      rw [tsum_eq_single i_ξ (fun j hj => by rw [if_neg hj])]; simp
+    have h_indicator_sum_le : (∑' k : ℕ, (if k = i_ξ then δ else 0)) ≤ 1 := by
+      rw [h_indicator_sum]; exact hδ_lt_one.le
+    have h_wc_sum_eq : (∑' k : ℕ, w_c k) =
+        (∑' k, wEvenFun k) + ∑' k : ℕ, (if k = i_ξ then δ else 0) := by
+      conv_lhs => rw [show (fun k : ℕ => w_c k) = (fun k => wEvenFun k +
+        (if k = i_ξ then δ else 0)) from funext hw_c_decomp]
+      rw [ENNReal.tsum_add]
+    have h_even_sum_le : (∑' k, wEvenFun k) + δ ≤ 1 := by
+      rw [← h_indicator_sum, ← h_wc_sum_eq]; exact w_c.tsum_le_one
+    have h_odd_sum : (∑' k, wOddFun k) = δ * ∑' k, geometricWeights k := by
+      simp only [wOddFun]; rw [ENNReal.tsum_mul_left]
+    -- 7. Positivity and sum ≤ 1.
+    have h_w'_pos : ∀ n, 0 < w'Fun n := by
+      intro n
+      simp only [w'Fun]
+      split_ifs with hn
+      · simp only [wEvenFun]
+        by_cases hk : n/2 = i_ξ
+        · rw [if_pos hk, hk]; exact tsub_pos_of_lt hδ_lt_wc
+        · rw [if_neg hk, tsub_zero]; exact w_c.pos _
+      · exact ENNReal.mul_pos hδ_pos.ne' (geometricWeights.pos _).ne'
+    -- 8. Sum of w'Fun via even/odd split through Equiv.natSumNatEquivNat.
+    have h_w'_sum_le : (∑' n, w'Fun n) ≤ 1 := by
+      -- Σ' w'Fun n = Σ' k, wEvenFun k + Σ' k, wOddFun k
+      have h_split : (∑' n, w'Fun n) =
+          (∑' k, wEvenFun k) + ∑' k, wOddFun k := by
+        rw [← Equiv.tsum_eq Equiv.natSumNatEquivNat w'Fun]
+        rw [ENNReal.summable.tsum_sum ENNReal.summable]
+        congr 1
+        · congr 1; funext k
+          show w'Fun (2 * k) = wEvenFun k
+          simp only [w'Fun]
+          rw [show (2 * k) % 2 = 0 from by omega, if_pos rfl,
+              show (2 * k) / 2 = k from by omega]
+        · congr 1; funext k
+          show w'Fun (2 * k + 1) = wOddFun k
+          simp only [w'Fun]
+          rw [show (2 * k + 1) % 2 = 1 from by omega, if_neg (by decide),
+              show (2 * k + 1) / 2 = k from by omega]
+      rw [h_split, h_odd_sum]
+      calc (∑' k, wEvenFun k) + δ * ∑' k, geometricWeights k
+          ≤ (∑' k, wEvenFun k) + δ * 1 := by gcongr; exact geometricWeights.tsum_le_one
+        _ = (∑' k, wEvenFun k) + δ := by rw [mul_one]
+        _ ≤ 1 := h_even_sum_le
+    -- 9. Package weights.
+    let w' : Weights := {
+      toFun := w'Fun,
+      lsc := h_w'_lsc,
+      pos := h_w'_pos,
+      tsum_le_one := h_w'_sum_le
+    }
+    -- 10. Prove mixture ν' w' = c (= mixture ν w_c).
+    refine ⟨ν', w', hν'_enum, hν'_complete, ?_⟩
+    apply Semimeasure.ext; intro x
+    simp only [mixture_apply]
+    -- Goal: ∑' i, w_c i * ν i x = ∑' n, w' n * ν' n x
+    -- Strategy: both equal to (Σ' k, wEvenFun k * ν k x) + δ * ν i_ξ x.
+    -- LHS: use w_c = wEvenFun + indicator; indicator sum gives δ * ν i_ξ x.
+    have hLHS : (∑' i, w_c i * ν i x) = (∑' k, wEvenFun k * ν k x) + δ * ν i_ξ x := by
+      conv_lhs => rw [show (fun i : ℕ => w_c i * ν i x) =
+        (fun i => (wEvenFun i + (if i = i_ξ then δ else 0)) * ν i x) from by
+          funext i; rw [hw_c_decomp]]
+      simp_rw [add_mul]
+      rw [ENNReal.tsum_add]
+      congr 1
+      rw [tsum_eq_single i_ξ (fun j hj => by rw [if_neg hj, zero_mul])]
+      rw [if_pos rfl]
+    -- RHS: split by even/odd; even side = Σ' k, wEvenFun k * ν k x; odd side = δ * ξ x.
+    have hRHS : (∑' n, w' n * ν' n x) = (∑' k, wEvenFun k * ν k x) + δ * ν i_ξ x := by
+      show (∑' n, w'Fun n * ν' n x) = _
+      rw [← Equiv.tsum_eq Equiv.natSumNatEquivNat (fun n => w'Fun n * ν' n x),
+          ENNReal.summable.tsum_sum ENNReal.summable]
+      have h_even_terms : ∀ k, w'Fun (Equiv.natSumNatEquivNat (Sum.inl k)) *
+          ν' (Equiv.natSumNatEquivNat (Sum.inl k)) x = wEvenFun k * ν k x := fun k => by
+        rw [Equiv.natSumNatEquivNat_apply]
+        simp only [Sum.elim_inl]
+        show w'Fun (2 * k) * (ν' (2 * k)).toFun x = _
+        rw [show ν' (2 * k) = ν k from interleaveSm_even ν W.enum k]
+        congr 1
+        show w'Fun (2 * k) = wEvenFun k
+        simp only [w'Fun]
+        rw [show (2 * k) % 2 = 0 from by omega, if_pos rfl,
+            show (2 * k) / 2 = k from by omega]
+      have h_odd_terms : ∀ k, w'Fun (Equiv.natSumNatEquivNat (Sum.inr k)) *
+          ν' (Equiv.natSumNatEquivNat (Sum.inr k)) x = δ * geometricWeights k *
+          W.enum k x := fun k => by
+        rw [Equiv.natSumNatEquivNat_apply]
+        simp only [Sum.elim_inr]
+        show w'Fun (2 * k + 1) * (ν' (2 * k + 1)).toFun x = _
+        rw [show ν' (2 * k + 1) = W.enum k from interleaveSm_odd ν W.enum k]
+        congr 1
+        show w'Fun (2 * k + 1) = wOddFun k
+        simp only [w'Fun]
+        rw [show (2 * k + 1) % 2 = 1 from by omega, if_neg (by decide),
+            show (2 * k + 1) / 2 = k from by omega]
+      rw [tsum_congr h_even_terms, tsum_congr h_odd_terms]
+      -- Now: Σ' k, wEvenFun k * ν k x + Σ' k, δ * geom k * W.enum k x
+      --    = Σ' k, wEvenFun k * ν k x + δ * (mixture W.enum geom) x = _ + δ · ν i_ξ x
+      congr 1
+      conv_lhs => rw [show (fun k => δ * geometricWeights k * W.enum k x) =
+          (fun k => δ * (geometricWeights k * W.enum k x)) from by
+        funext k; rw [mul_assoc]]
+      rw [ENNReal.tsum_mul_left]
+      show δ * (∑' k, geometricWeights k * W.enum k x) = δ * ν i_ξ x
+      congr 1
+      show (ξ : Semimeasure).toFun x = (ν i_ξ).toFun x
+      rw [hi_ξ]
+    rw [hLHS, hRHS]
   · -- ⊇: any UM is a mixture over ν. The paper's δ-construction.
     rintro ξ ⟨ν_ξ, w_ξ, hν_ξ_enum, hν_ξ_complete, rfl⟩
     -- c := mixture ν geometricWeights; enumerable.
