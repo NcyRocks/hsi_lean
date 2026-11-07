@@ -558,10 +558,104 @@ theorem LowerSemicomputable.div_pos_nat {f : α → ℝ≥0∞}
     unfold dyadic
     gcongr
     exact_mod_cast h_div_mono a m n hmn
-  · -- Supremum: ⨆_n dyadic (⌊φ/d⌋) n = f a / d. Supremum = limit by monotonicity;
-    -- the limit equals f a / d by a squeeze between `N * dyadic (φ a n) n / D ` and itself
-    -- minus a vanishing rounding error. Left as sorry pending the Tendsto plumbing.
-    sorry
+  · -- Supremum: ⨆_n dyadic (⌊φ a n / d⌋) n = f a / d.
+    -- Key: dyadic (⌊p/d⌋) n = (⌊p/d⌋ : ℝ≥0∞)/2^n ∈ [dyadic p n / d - dyadic 1 n, dyadic p n / d].
+    -- Upper bound: ≤ dyadic p n / d ≤ f a / d.
+    -- Lower bound: ⨆_n (dyadic (φ a n) n / d - dyadic 1 n) = f a / d by iSup_tsub_tendsto_zero.
+    intro a
+    have hd_ne : (d : ℝ≥0∞) ≠ 0 := by exact_mod_cast hd.ne'
+    have hd_nt : (d : ℝ≥0∞) ≠ ⊤ := ENNReal.natCast_ne_top _
+    -- Each approximant lies in [a_n - b_n, a_n] where a_n := dyadic (φ a n) n / d, b_n := dyadic 1 n.
+    have h_bound : ∀ n, dyadic (φ a n / d) n ≤ dyadic (φ a n) n / (d : ℝ≥0∞) ∧
+                       dyadic (φ a n) n / (d : ℝ≥0∞) ≤ dyadic (φ a n / d) n + dyadic 1 n := by
+      intro n
+      refine ⟨?_, ?_⟩
+      · -- dyadic (⌊p/d⌋) n ≤ dyadic p n / d
+        have h_nat : (φ a n / d : ℕ) * d ≤ φ a n := Nat.div_mul_le_self _ _
+        have h_enn : ((φ a n / d : ℕ) : ℝ≥0∞) * d ≤ (φ a n : ℝ≥0∞) := by exact_mod_cast h_nat
+        have h_le : ((φ a n / d : ℕ) : ℝ≥0∞) ≤ (φ a n : ℝ≥0∞) / d :=
+          (ENNReal.le_div_iff_mul_le (Or.inl hd_ne) (Or.inl hd_nt)).mpr h_enn
+        -- dyadic (⌊p/d⌋) n = ⌊p/d⌋/2^n ≤ (p/d)/2^n = p/2^n/d = dyadic p n / d.
+        -- Use div_right_comm: p/2^n/d = p/d/2^n.
+        show ((φ a n / d : ℕ) : ℝ≥0∞) / (2:ℝ≥0∞)^n ≤
+             (φ a n : ℝ≥0∞) / 2^n / d
+        rw [ENNReal.div_right_comm]
+        gcongr
+      · -- dyadic p n / d ≤ dyadic (⌊p/d⌋) n + dyadic 1 n
+        have h_nat' : φ a n ≤ d * (φ a n / d) + d := by
+          have h_mod : φ a n % d < d := Nat.mod_lt _ hd
+          have h_eq : φ a n = d * (φ a n / d) + φ a n % d := (Nat.div_add_mod _ _).symm
+          omega
+        have h_enn : (φ a n : ℝ≥0∞) ≤ d * ((φ a n / d : ℕ) : ℝ≥0∞) + d := by
+          have : ((φ a n : ℕ) : ℝ≥0∞) ≤ ((d * (φ a n / d) + d : ℕ) : ℝ≥0∞) := by exact_mod_cast h_nat'
+          push_cast at this
+          exact this
+        -- p / d / 2^n ≤ (d*⌊p/d⌋ + d) / d / 2^n = ⌊p/d⌋/2^n + 1/2^n
+        show (φ a n : ℝ≥0∞) / (2:ℝ≥0∞)^n / d ≤
+             ((φ a n / d : ℕ) : ℝ≥0∞) / (2:ℝ≥0∞)^n +
+             ((1 : ℕ) : ℝ≥0∞) / (2:ℝ≥0∞)^n
+        rw [ENNReal.div_right_comm]
+        calc (φ a n : ℝ≥0∞) / d / 2^n
+            ≤ (d * ((φ a n / d : ℕ) : ℝ≥0∞) + d) / d / 2^n := by gcongr
+          _ = (d * ((φ a n / d : ℕ) : ℝ≥0∞) / d + d / d) / 2^n := by
+                rw [ENNReal.add_div]
+          _ = (((φ a n / d : ℕ) : ℝ≥0∞) + 1) / 2^n := by
+                have h1 : (d : ℝ≥0∞) * ((φ a n / d : ℕ) : ℝ≥0∞) / d = ((φ a n / d : ℕ) : ℝ≥0∞) := by
+                  rw [mul_div_assoc, ENNReal.mul_div_cancel hd_ne hd_nt]
+                have h2 : (d : ℝ≥0∞) / d = 1 := ENNReal.div_self hd_ne hd_nt
+                rw [h1, h2]
+          _ = ((φ a n / d : ℕ) : ℝ≥0∞) / 2^n + 1 / 2^n := by rw [ENNReal.add_div]
+          _ = ((φ a n / d : ℕ) : ℝ≥0∞) / (2:ℝ≥0∞)^n +
+              ((1 : ℕ) : ℝ≥0∞) / (2:ℝ≥0∞)^n := by push_cast; rfl
+    -- Upper bound
+    have h_ub : ⨆ n, dyadic (φ a n / d) n ≤ f a / (d : ℝ≥0∞) := by
+      apply iSup_le
+      intro n
+      calc dyadic (φ a n / d) n
+          ≤ dyadic (φ a n) n / (d : ℝ≥0∞) := (h_bound n).1
+        _ ≤ f a / (d : ℝ≥0∞) := by
+            gcongr
+            calc dyadic (φ a n) n ≤ ⨆ m, dyadic (φ a m) m := le_iSup (fun m => dyadic (φ a m) m) n
+              _ = f a := hφ_sup a
+    -- Lower bound via iSup_tsub_tendsto_zero
+    have h_lb : f a / (d : ℝ≥0∞) ≤ ⨆ n, dyadic (φ a n / d) n := by
+      -- Step A: f a / d = ⨆_n dyadic (φ a n) n / d
+      have h_fad_eq : f a / (d : ℝ≥0∞) = ⨆ n, dyadic (φ a n) n / (d : ℝ≥0∞) := by
+        rw [← hφ_sup a, ENNReal.iSup_div]
+      rw [h_fad_eq]
+      apply iSup_le
+      intro n
+      -- Suffices: dyadic (φ a n) n / d ≤ ⨆_m dyadic (φ a m / d) m
+      -- Strategy: use ENNReal.le_of_forall_pos_le_add
+      apply ENNReal.le_of_forall_pos_le_add
+      intros ε hε_pos _
+      -- dyadic 1 m → 0 as m → ∞; pick m ≥ n with dyadic 1 m ≤ ε
+      have h_dyad_one_tendsto : Filter.Tendsto (fun m => dyadic 1 m) Filter.atTop (nhds 0) := by
+        have h_half : (fun m => dyadic 1 m) = (fun m => ((2 : ℝ≥0∞)⁻¹) ^ m) := by
+          funext m; unfold dyadic
+          rw [Nat.cast_one, one_div, ENNReal.inv_pow]
+        rw [h_half]
+        apply ENNReal.tendsto_pow_atTop_nhds_zero_of_lt_one
+        rw [ENNReal.inv_lt_one]
+        norm_num
+      rw [ENNReal.tendsto_atTop_zero] at h_dyad_one_tendsto
+      obtain ⟨N, hN⟩ := h_dyad_one_tendsto ε (by exact_mod_cast hε_pos)
+      let m := max n N
+      have hnm : n ≤ m := le_max_left _ _
+      have hNm : N ≤ m := le_max_right _ _
+      have h_dyad_1_m : dyadic 1 m ≤ (ε : ℝ≥0∞) := hN m hNm
+      -- dyadic (φ a n) n / d ≤ dyadic (φ a m) m / d (monotone φ-approximants, /d preserves)
+      have h_mono_φd : dyadic (φ a n) n / (d : ℝ≥0∞) ≤ dyadic (φ a m) m / (d : ℝ≥0∞) := by
+        gcongr; exact hφ_mono a hnm
+      -- dyadic (φ a m) m / d ≤ dyadic (φ a m / d) m + dyadic 1 m
+      have h_bnd_m := (h_bound m).2
+      calc dyadic (φ a n) n / (d : ℝ≥0∞)
+          ≤ dyadic (φ a m) m / (d : ℝ≥0∞) := h_mono_φd
+        _ ≤ dyadic (φ a m / d) m + dyadic 1 m := h_bnd_m
+        _ ≤ dyadic (φ a m / d) m + (ε : ℝ≥0∞) := by gcongr
+        _ ≤ (⨆ k, dyadic (φ a k / d) k) + (ε : ℝ≥0∞) := by
+            gcongr; exact le_iSup (fun k => dyadic (φ a k / d) k) m
+    exact le_antisymm h_ub h_lb
 
 /-- LSC on `ℕ → ℝ≥0∞` is closed under adding a dyadic constant at a single index. -/
 theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
