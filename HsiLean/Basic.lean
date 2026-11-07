@@ -1229,6 +1229,126 @@ private noncomputable def wCombine
       _ = 1 := by
             rw [add_tsub_cancel_of_le hδ_lt_one.le]
 
+/-! ### Interleave construction for the ⊆ direction
+
+The ⊆ direction needs: given `c = mixture ν w_c`, produce a uniformly enumerable
+family that contains every enumerable semimeasure and reproduces `c`. Nathan's
+hint (2026-11-07): the paper's alternation is one way, but any combination
+works. Construction: let `ξ := mixture W.enum geometricWeights` (always a UM),
+locate it in `ν` at `i_ξ`, and interleave *`ν` with index `i_ξ` skipped* with
+`W.enum`. Weights: `w_c` on the `ν`-side (skipping `i_ξ`), `w_c(i_ξ)·geom` on
+the `W.enum`-side. The two sums at `ξ` cancel out so `mixture = c`.
+-/
+
+/-- `skipIdx i₀ n` enumerates `ℕ \ {i₀}`: shift indices `≥ i₀` up by one. -/
+private def skipIdx (i₀ n : ℕ) : ℕ := if n < i₀ then n else n + 1
+
+private theorem skipIdx_ne (i₀ n : ℕ) : skipIdx i₀ n ≠ i₀ := by
+  unfold skipIdx; split_ifs <;> omega
+
+private theorem skipIdx_injective (i₀ : ℕ) : Function.Injective (skipIdx i₀) := by
+  intros m n h
+  unfold skipIdx at h
+  split_ifs at h <;> omega
+
+/-- Every `j ≠ i₀` is `skipIdx i₀ n` for some `n`. -/
+private theorem skipIdx_surjective (i₀ : ℕ) :
+    ∀ j, j ≠ i₀ → ∃ n, skipIdx i₀ n = j := by
+  intro j hj
+  by_cases h : j < i₀
+  · exact ⟨j, by unfold skipIdx; rw [if_pos h]⟩
+  · refine ⟨j - 1, ?_⟩
+    unfold skipIdx
+    have : i₀ < j := by omega
+    rw [if_neg (by omega)]
+    omega
+
+/-- The interleaved family: even `n ↦ ν (skipIdx i₀ (n/2))`, odd `n ↦ g (n/2)`. -/
+private noncomputable def interleaveSm (ν g : ℕ → Semimeasure) (i₀ : ℕ) :
+    ℕ → Semimeasure :=
+  fun n => if n % 2 = 0 then ν (skipIdx i₀ (n / 2)) else g (n / 2)
+
+@[simp]
+private theorem interleaveSm_even (ν g : ℕ → Semimeasure) (i₀ k : ℕ) :
+    interleaveSm ν g i₀ (2 * k) = ν (skipIdx i₀ k) := by
+  unfold interleaveSm
+  rw [show (2 * k) % 2 = 0 from by omega, if_pos rfl, show (2 * k) / 2 = k from by omega]
+
+@[simp]
+private theorem interleaveSm_odd (ν g : ℕ → Semimeasure) (i₀ k : ℕ) :
+    interleaveSm ν g i₀ (2 * k + 1) = g k := by
+  unfold interleaveSm
+  rw [show (2 * k + 1) % 2 = 1 from by omega, if_neg (by decide),
+      show (2 * k + 1) / 2 = k from by omega]
+
+/-- Interleave of two uniformly-enumerable families is uniformly enumerable. -/
+private theorem UniformlyEnumerable.interleave
+    {ν g : ℕ → Semimeasure} (hν : UniformlyEnumerable ν)
+    (hg : UniformlyEnumerable g) (i₀ : ℕ) :
+    UniformlyEnumerable (interleaveSm ν g i₀) := by
+  obtain ⟨φ_ν, hc_ν, hm_ν, hs_ν⟩ := hν
+  obtain ⟨φ_g, hc_g, hm_g, hs_g⟩ := hg
+  refine ⟨fun p k => if p.1 % 2 = 0 then φ_ν (skipIdx i₀ (p.1 / 2), p.2) k
+                    else φ_g (p.1 / 2, p.2) k, ?_, ?_, ?_⟩
+  · -- Computability.
+    have hp_a : Primrec (fun p : (ℕ × List Bool) × ℕ => p.1.1) :=
+      Primrec.fst.comp Primrec.fst
+    have hp_str : Primrec (fun p : (ℕ × List Bool) × ℕ => p.1.2) :=
+      Primrec.snd.comp Primrec.fst
+    have hp_half : Primrec (fun p : (ℕ × List Bool) × ℕ => p.1.1 / 2) :=
+      Primrec.nat_div.comp hp_a (Primrec.const 2)
+    have hp_mod : Primrec (fun p : (ℕ × List Bool) × ℕ => p.1.1 % 2) :=
+      Primrec.nat_mod.comp hp_a (Primrec.const 2)
+    have h_cond : Computable (fun p : (ℕ × List Bool) × ℕ => decide (p.1.1 % 2 = 0)) :=
+      (Primrec.eq.decide.comp hp_mod (Primrec.const 0)).to_comp
+    -- skipIdx i₀ (p.1.1 / 2) as Primrec.
+    have hp_lt_i₀ : Primrec (fun p : (ℕ × List Bool) × ℕ => decide (p.1.1 / 2 < i₀)) :=
+      Primrec.nat_lt.decide.comp hp_half (Primrec.const i₀)
+    have hp_half_succ : Primrec (fun p : (ℕ × List Bool) × ℕ => p.1.1 / 2 + 1) :=
+      Primrec.succ.comp hp_half
+    have hp_skip : Primrec (fun p : (ℕ × List Bool) × ℕ => skipIdx i₀ (p.1.1 / 2)) :=
+      (Primrec.cond hp_lt_i₀ hp_half hp_half_succ).of_eq fun p => by
+        simp only [skipIdx]
+        by_cases h : p.1.1 / 2 < i₀
+        · simp [h]
+        · simp [h]
+    have h_stage : Computable (fun p : (ℕ × List Bool) × ℕ => p.2) :=
+      Computable.snd
+    -- Even branch.
+    have h_pair_ν : Computable (fun p : (ℕ × List Bool) × ℕ =>
+        (skipIdx i₀ (p.1.1 / 2), p.1.2)) :=
+      Computable.pair hp_skip.to_comp hp_str.to_comp
+    have h_then : Computable (fun p : (ℕ × List Bool) × ℕ =>
+        φ_ν (skipIdx i₀ (p.1.1 / 2), p.1.2) p.2) :=
+      hc_ν.comp (Computable.pair h_pair_ν h_stage)
+    -- Odd branch.
+    have h_pair_g : Computable (fun p : (ℕ × List Bool) × ℕ =>
+        (p.1.1 / 2, p.1.2)) :=
+      Computable.pair hp_half.to_comp hp_str.to_comp
+    have h_else : Computable (fun p : (ℕ × List Bool) × ℕ =>
+        φ_g (p.1.1 / 2, p.1.2) p.2) :=
+      hc_g.comp (Computable.pair h_pair_g h_stage)
+    exact (Computable.cond h_cond h_then h_else).of_eq fun p => by
+      by_cases h : p.1.1 % 2 = 0 <;> simp [h]
+  · -- Monotone.
+    intro p m n hmn
+    simp only
+    split_ifs
+    · exact hm_ν _ hmn
+    · exact hm_g _ hmn
+  · -- Supremum.
+    intro p
+    show (⨆ k, dyadic
+        (if p.1 % 2 = 0 then φ_ν (skipIdx i₀ (p.1 / 2), p.2) k
+         else φ_g (p.1 / 2, p.2) k) k) = (interleaveSm ν g i₀ p.1).toFun p.2
+    by_cases hp : p.1 % 2 = 0
+    · simp_rw [if_pos hp]
+      rw [hs_ν]
+      simp only [interleaveSm, if_pos hp]
+    · simp_rw [if_neg hp]
+      rw [hs_g]
+      simp only [interleaveSm, if_neg hp]
+
 /-- **The spine theorem**, `thm:enums-of-ums=ums`: for any effective enumeration
 of enumerable semimeasures containing every universal mixture, the class of
 mixtures over it is exactly the class of universal mixtures.
