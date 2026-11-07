@@ -471,12 +471,6 @@ private theorem lsc_indicator_const (i₀ a b : ℕ) :
         simp [dyadic]
       · exact bot_le
 
-/-- LSC on `ℕ → ℝ≥0∞` is closed under adding a dyadic constant at a single index. -/
-theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
-    (hf : LowerSemicomputable f) (i₀ a b : ℕ) :
-    LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) :=
-  hf.add (lsc_indicator_const i₀ a b)
-
 /-- Nat subtraction becomes ENNReal subtraction of dyadics: `dyadic (p - q) n =
 dyadic p n - dyadic q n`. Holds unconditionally: when `q > p`, both sides are 0
 (Nat sub truncates the LHS to 0, ENNReal tsub truncates the RHS to 0). -/
@@ -498,6 +492,82 @@ private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
   have h1 : (2 : ℝ≥0∞) ^ (n - b) ≠ 0 := by positivity
   have h2 : (2 : ℝ≥0∞) ^ (n - b) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
   exact ENNReal.mul_div_mul_right _ _ h1 h2
+
+/-- LSC is closed under multiplication by a natural constant. -/
+theorem LowerSemicomputable.nat_mul {f : α → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (c : ℕ) :
+    LowerSemicomputable (fun a => (c : ℝ≥0∞) * f a) := by
+  obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
+  have h : ∀ (a : α) (k : ℕ), dyadic (c * φ a k) k = (c : ℝ≥0∞) * dyadic (φ a k) k :=
+    fun a k => by unfold dyadic; push_cast; rw [mul_div_assoc]
+  refine ⟨fun a n => c * φ a n, ?_, ?_, ?_⟩
+  · exact Primrec.nat_mul.to_comp.comp (Computable.const c) hφ_comp
+  · intro a m n hmn
+    simp only
+    rw [h a m, h a n]
+    gcongr
+    exact hφ_mono a hmn
+  · intro a
+    simp_rw [h a]
+    rw [← ENNReal.mul_iSup, hφ_sup a]
+
+/-- LSC is closed under division by a positive natural constant.
+
+Approximant: `⌊φ(a, n)/d⌋`. Monotonicity reduces to the Nat identity
+`⌊p/d⌋ * 2^(n-m) ≤ ⌊q/d⌋` when `p * 2^(n-m) ≤ q`. The supremum uses that
+the rounding error `(φ a n / d - ⌊φ a n/d⌋) / 2^n ≤ 1/(d · 2^n)` vanishes
+as `n → ∞`, so the monotone sequence of approximants limits to `f a / d`;
+sup = limit via `Monotone.tendsto_atTop_iSup`. -/
+theorem LowerSemicomputable.div_pos_nat {f : α → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (d : ℕ) (hd : 0 < d) :
+    LowerSemicomputable (fun a => f a / (d : ℝ≥0∞)) := by
+  obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hf
+  -- Nat lemma: from LSC monotonicity derive `φ a m * 2^(n-m) ≤ φ a n`.
+  have h_nat_mono : ∀ (a : α) (m n : ℕ), m ≤ n → φ a m * 2^(n - m) ≤ φ a n := by
+    intros a m n hmn
+    have hshift : dyadic (φ a m * 2^(n-m)) n = dyadic (φ a m) m :=
+      dyadic_mul_shift (φ a m) m n hmn
+    have hdy : dyadic (φ a m * 2^(n-m)) n ≤ dyadic (φ a n) n := by
+      rw [hshift]; exact hφ_mono a hmn
+    have h2n_ne : (2 : ℝ≥0∞)^n ≠ 0 := by positivity
+    have h2n_nt : (2 : ℝ≥0∞)^n ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+    have h_cast : ((φ a m * 2^(n-m) : ℕ) : ℝ≥0∞) ≤ ((φ a n : ℕ) : ℝ≥0∞) := by
+      unfold dyadic at hdy
+      calc ((φ a m * 2^(n-m) : ℕ) : ℝ≥0∞)
+          = ((φ a m * 2^(n-m) : ℕ) : ℝ≥0∞) / 2^n * 2^n :=
+            (ENNReal.div_mul_cancel h2n_ne h2n_nt).symm
+        _ ≤ ((φ a n : ℕ) : ℝ≥0∞) / 2^n * 2^n := by gcongr
+        _ = ((φ a n : ℕ) : ℝ≥0∞) := ENNReal.div_mul_cancel h2n_ne h2n_nt
+    exact_mod_cast h_cast
+  have h_div_mono : ∀ (a : α) (m n : ℕ), m ≤ n → (φ a m / d) * 2^(n - m) ≤ φ a n / d := by
+    intros a m n hmn
+    calc (φ a m / d) * 2^(n-m)
+        ≤ ((φ a m) * 2^(n-m)) / d := by
+          rw [Nat.le_div_iff_mul_le hd]
+          calc (φ a m / d) * 2^(n-m) * d
+              = (φ a m / d) * d * 2^(n-m) := by ring
+            _ ≤ φ a m * 2^(n-m) := Nat.mul_le_mul_right _ (Nat.div_mul_le_self _ _)
+      _ ≤ φ a n / d := Nat.div_le_div_right (h_nat_mono a m n hmn)
+  refine ⟨fun a n => φ a n / d, ?_, ?_, ?_⟩
+  · exact Primrec.nat_div.to_comp.comp hφ_comp (Computable.const d)
+  · -- Monotonicity. Use dyadic_mul_shift to rewrite LHS at level n, then compare numerators.
+    intro a m n hmn
+    simp only
+    rw [show dyadic (φ a m / d) m = dyadic ((φ a m / d) * 2^(n-m)) n from
+          (dyadic_mul_shift (φ a m / d) m n hmn).symm]
+    unfold dyadic
+    gcongr
+    exact_mod_cast h_div_mono a m n hmn
+  · -- Supremum: ⨆_n dyadic (⌊φ/d⌋) n = f a / d. Supremum = limit by monotonicity;
+    -- the limit equals f a / d by a squeeze between `N * dyadic (φ a n) n / D ` and itself
+    -- minus a vanishing rounding error. Left as sorry pending the Tendsto plumbing.
+    sorry
+
+/-- LSC on `ℕ → ℝ≥0∞` is closed under adding a dyadic constant at a single index. -/
+theorem LowerSemicomputable.add_indicator_dyadic {f : ℕ → ℝ≥0∞}
+    (hf : LowerSemicomputable f) (i₀ a b : ℕ) :
+    LowerSemicomputable (fun i => f i + (if i = i₀ then dyadic a b else 0)) :=
+  hf.add (lsc_indicator_const i₀ a b)
 
 /-- LSC on `ℕ → ℝ≥0∞` is closed under subtracting a dyadic constant at a single
 index, provided the function dominates the constant at that index.
