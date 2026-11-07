@@ -329,6 +329,16 @@ private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
   have h2 : (2 : ℝ≥0∞) ^ (n - b) ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
   exact ENNReal.mul_div_mul_right _ _ h1 h2
 
+/-- Auxiliary: `dyadic (a * k) (b + n) = dyadic a b * dyadic k n`. -/
+private theorem dyadic_mul_add (a b k n : ℕ) :
+    dyadic (a * k) (b + n) = dyadic a b * dyadic k n := by
+  simp only [dyadic, pow_add, Nat.cast_mul, div_eq_mul_inv]
+  have hBN : ((2 : ℝ≥0∞) ^ b * (2 : ℝ≥0∞) ^ n)⁻¹ =
+      ((2 : ℝ≥0∞) ^ b)⁻¹ * ((2 : ℝ≥0∞) ^ n)⁻¹ :=
+    ENNReal.mul_inv (Or.inl (pow_ne_zero b (by norm_num)))
+                    (Or.inl (ENNReal.pow_ne_top (by norm_num)))
+  rw [hBN]; ac_rfl
+
 /-- The approximant function witnessing LSC of a mixture: at stage `k`, use the
 `m := k/2`-level approximations of both the weights and the semimeasure family,
 summing the first `m` terms (via `Nat.rec`), then lift from level `2m` to level
@@ -484,18 +494,104 @@ theorem UniformlyEnumerable.mixture_enumerable
     show dyadic (mixtureApprox φ_w φ_ν x k) k ≤ dyadic (mixtureApprox φ_w φ_ν x k') k'
     rw [h_normalize k, h_normalize k']
     exact h_mono_m (Nat.div_le_div_right hkk')
-  · -- Supremum = mixture ν w x (deferred).
-    sorry
-
-/-- Auxiliary: `dyadic (a * k) (b + n) = dyadic a b * dyadic k n`. -/
-private theorem dyadic_mul_add (a b k n : ℕ) :
-    dyadic (a * k) (b + n) = dyadic a b * dyadic k n := by
-  simp only [dyadic, pow_add, Nat.cast_mul, div_eq_mul_inv]
-  have hBN : ((2 : ℝ≥0∞) ^ b * (2 : ℝ≥0∞) ^ n)⁻¹ =
-      ((2 : ℝ≥0∞) ^ b)⁻¹ * ((2 : ℝ≥0∞) ^ n)⁻¹ :=
-    ENNReal.mul_inv (Or.inl (pow_ne_zero b (by norm_num)))
-                    (Or.inl (ENNReal.pow_ne_top (by norm_num)))
-  rw [hBN]; ac_rfl
+  · -- Supremum = mixture ν w x.
+    intro x
+    -- Shorthand: partial sum at level ℓ, m terms.
+    let pSum : ℕ → ℕ → ℕ := fun ℓ m =>
+      Nat.rec (motive := fun _ => ℕ) 0
+        (fun j acc => acc + φ_w j ℓ * φ_ν (j, x) ℓ) m
+    -- Normalize approximant: dyadic (mixtureApprox _ _ x k) k =
+    --   dyadic (pSum (k/2) (k/2)) (2*(k/2)).
+    have h_normalize : ∀ k, dyadic (mixtureApprox φ_w φ_ν x k) k =
+        dyadic (pSum (k/2) (k/2)) (2 * (k/2)) := by
+      intro k
+      show dyadic (pSum (k/2) (k/2) * 2 ^ (k - 2 * (k/2))) k =
+          dyadic (pSum (k/2) (k/2)) (2 * (k/2))
+      exact dyadic_mul_shift _ (2 * (k/2)) k (by omega)
+    -- Shorthand term a m j := dyadic product at level m.
+    let a : ℕ → ℕ → ℝ≥0∞ := fun m j =>
+      dyadic (φ_w j m) m * dyadic (φ_ν (j, x) m) m
+    -- Step 1: dyadic (pSum ℓ m) (2ℓ) = Σ_{j<m} a ℓ j by induction on m.
+    have h_psum_eq_sum : ∀ ℓ m : ℕ, dyadic (pSum ℓ m) (2 * ℓ) =
+        ∑ j ∈ Finset.range m, a ℓ j := by
+      intro ℓ m
+      induction m with
+      | zero => simp [pSum, dyadic]
+      | succ k ih =>
+        show dyadic (pSum ℓ k + φ_w k ℓ * φ_ν (k, x) ℓ) (2 * ℓ) = _
+        rw [dyadic_add, ih, Finset.sum_range_succ]
+        congr 1
+        show dyadic (φ_w k ℓ * φ_ν (k, x) ℓ) (2 * ℓ) = a ℓ k
+        show dyadic (φ_w k ℓ * φ_ν (k, x) ℓ) (2 * ℓ)
+            = dyadic (φ_w k ℓ) ℓ * dyadic (φ_ν (k, x) ℓ) ℓ
+        rw [show (2 * ℓ) = ℓ + ℓ by ring]
+        exact dyadic_mul_add (φ_w k ℓ) ℓ (φ_ν (k, x) ℓ) ℓ
+    -- Step 2: ⨆ k dyadic (mixtureApprox...) k = ⨆ m, Σ_{j<m} a m j.
+    have h_lhs_eq : (⨆ k, dyadic (mixtureApprox φ_w φ_ν x k) k) =
+        ⨆ m, ∑ j ∈ Finset.range m, a m j := by
+      simp_rw [h_normalize, h_psum_eq_sum]
+      apply le_antisymm
+      · exact iSup_le fun k => le_iSup (fun m => ∑ j ∈ Finset.range m, a m j) (k/2)
+      · apply iSup_le; intro m
+        have h_eq : m = (2 * m) / 2 := by omega
+        calc (∑ j ∈ Finset.range m, a m j)
+            = ∑ j ∈ Finset.range ((2 * m)/2), a ((2 * m)/2) j := by rw [← h_eq]
+          _ ≤ ⨆ k, ∑ j ∈ Finset.range (k/2), a (k/2) j :=
+              le_iSup (fun k => ∑ j ∈ Finset.range (k/2), a (k/2) j) (2 * m)
+    -- Step 3: a (·, j) monotone in m for each j.
+    have h_a_mono : ∀ j, Monotone (fun m => a m j) := by
+      intro j m n hmn
+      exact mul_le_mul' (hφw_mono j hmn) (hφν_mono (j, x) hmn)
+    -- Beta-reduced νs sup per (i, x).
+    have hφν_sup' : ∀ i, (⨆ n, dyadic (φ_ν (i, x) n) n) = (ν i).toFun x :=
+      fun i => hφν_sup (i, x)
+    -- Step 4: w j * ν j x = ⨆ n, a n j via diagonal iSup × iSup.
+    have h_term : ∀ j, w j * ν j x = ⨆ n, a n j := by
+      intro j
+      rw [← hφw_sup j, ← hφν_sup' j]
+      apply le_antisymm
+      · rw [ENNReal.iSup_mul]
+        apply iSup_le; intro m
+        rw [ENNReal.mul_iSup]
+        apply iSup_le; intro n
+        set k := max m n
+        calc dyadic (φ_w j m) m * dyadic (φ_ν (j, x) n) n
+            ≤ dyadic (φ_w j k) k * dyadic (φ_ν (j, x) k) k :=
+              mul_le_mul' (hφw_mono j (le_max_left _ _))
+                (hφν_mono (j, x) (le_max_right _ _))
+          _ ≤ ⨆ n', a n' j := le_iSup (fun n' => a n' j) k
+      · exact iSup_le fun n =>
+          mul_le_mul'
+            (le_iSup (fun m => dyadic (φ_w j m) m) n)
+            (le_iSup (fun m => dyadic (φ_ν (j, x) m) m) n)
+    -- Step 5: assemble.
+    show (⨆ k, dyadic (mixtureApprox φ_w φ_ν x k) k) = ∑' j, w j * ν j x
+    rw [h_lhs_eq]
+    have h_rhs_eq : (∑' j, w j * ν j x) = ∑' j, ⨆ n, a n j := by
+      congr 1; funext j; exact h_term j
+    rw [h_rhs_eq, ENNReal.tsum_eq_iSup_nat]
+    -- Goal: ⨆ m, Σ j<m, a m j = ⨆ M, Σ j<M, ⨆ n, a n j
+    apply le_antisymm
+    · apply iSup_le; intro m
+      calc (∑ j ∈ Finset.range m, a m j)
+          ≤ ∑ j ∈ Finset.range m, ⨆ n, a n j := by
+            gcongr with j _
+            exact le_iSup (fun n => a n j) m
+        _ ≤ ⨆ M, ∑ j ∈ Finset.range M, ⨆ n, a n j :=
+            le_iSup (fun M => ∑ j ∈ Finset.range M, ⨆ n, a n j) m
+    · apply iSup_le; intro M
+      rw [ENNReal.finsetSum_iSup_of_monotone h_a_mono]
+      apply iSup_le; intro n
+      set k := max n M
+      calc (∑ j ∈ Finset.range M, a n j)
+          ≤ ∑ j ∈ Finset.range M, a k j := by
+            gcongr with j _
+            exact h_a_mono j (le_max_left _ _)
+        _ ≤ ∑ j ∈ Finset.range k, a k j :=
+            Finset.sum_le_sum_of_subset
+              (Finset.range_subset_range.mpr (le_max_right _ _))
+        _ ≤ ⨆ m, ∑ j ∈ Finset.range m, a m j :=
+            le_iSup (fun m => ∑ j ∈ Finset.range m, a m j) k
 
 /-- Auxiliary: `if b ≤ n then g (n - b) else 0` has the same iSup as `g`. -/
 private theorem iSup_shift (b : ℕ) (g : ℕ → ℝ≥0∞) :
