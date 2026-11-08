@@ -328,13 +328,12 @@ theorem GApprox_root_le_one (e t : ℕ) : GApprox e t [] ≤ 1 := by
   rw [ENNReal.div_le_iff h2 h2t, one_mul]
   exact hs
 
-/-- Local copy of the dyadic level-shift fact (private in `Basic.lean`). -/
+/-- Dyadic level-shift as used here: double numerator, exponent up by 1. -/
 theorem dyadic_double_succ (a t : ℕ) : dyadic (2 * a) (t + 1) = dyadic a t := by
-  unfold dyadic
-  push_cast
-  rw [pow_succ, mul_comm ((2 : ℝ≥0∞) ^ t) 2,
-      ENNReal.mul_div_mul_left (a := (a : ℝ≥0∞)) (b := (2 : ℝ≥0∞) ^ t)
-        (by norm_num : (2 : ℝ≥0∞) ≠ 0) (by norm_num : (2 : ℝ≥0∞) ≠ ⊤)]
+  have := dyadic_mul_shift a t (t + 1) (Nat.le_succ t)
+  simp at this
+  convert this using 2
+  ring
 
 /-- Reading `gApprox` at level `t` vs `t+1`: level up preserves (or increases) the dyadic value. -/
 theorem gApprox_dyadic_le_succ (e t : ℕ) (x : List Bool) :
@@ -388,8 +387,161 @@ Given `μ` with `μ.Enumerable` — a computable `φ : List Bool → ℕ → ℕ
 `dyadic (φ x n) n` monotone with sup `μ x` — we build a code `e` with
 `enum e = μ`. -/
 
+/-- A single `candidate` at the chosen code, when `evaln` has caught up, yields
+    `dyadic (φ x n) n`. -/
+theorem candidate_dyadic_eq {e t n : ℕ} {x : List Bool} {k : ℕ}
+    (hn : n ≤ t)
+    (hev : Nat.Partrec.Code.evaln t (codeOf e) (Encodable.encode (x, n)) = some k) :
+    dyadic (candidate e t n x) t = dyadic k n := by
+  unfold candidate
+  rw [hev]
+  exact dyadic_mul_shift k n t hn
+
+/-- `dyadic (fApprox e t x) t` is monotone in `t`. -/
+theorem fApprox_dyadic_mono (e : ℕ) (x : List Bool) :
+    Monotone (fun t => dyadic (fApprox e t x) t) := by
+  apply monotone_nat_of_le_succ
+  intro t
+  calc dyadic (fApprox e t x) t
+      = dyadic (2 * fApprox e t x) (t + 1) := (dyadic_double_succ _ _).symm
+    _ ≤ dyadic (fApprox e (t + 1) x) (t + 1) := dyadic_mono_num (fApprox_double_le e t x)
+
 theorem enum_complete : ∀ μ : Semimeasure, μ.Enumerable → ∃ e, enum e = μ := by
-  sorry
+  intro μ hμ
+  obtain ⟨φ, hφ_comp, hφ_mono, hφ_sup⟩ := hμ
+  -- Get a Nat.Partrec.Code for `fun p => some (φ p.1 p.2)`.
+  have hpart : Nat.Partrec (fun n => Part.bind
+      ((Encodable.decode (α := List Bool × ℕ) n : Part (List Bool × ℕ)))
+      fun p : List Bool × ℕ =>
+      (Part.some (φ p.1 p.2)).map Encodable.encode) := hφ_comp
+  obtain ⟨c, hc⟩ := Nat.Partrec.Code.exists_code.mp hpart
+  refine ⟨Encodable.encode c, ?_⟩
+  -- The code we chose decodes to `c`.
+  have hcodeOf : codeOf (Encodable.encode c) = c :=
+    Denumerable.ofNat_encode (α := Nat.Partrec.Code) c
+  set e := Encodable.encode c
+  -- `eval c (encode (x, n))` is `Part.some (φ x n)`.
+  have heval : ∀ x n, Nat.Partrec.Code.eval c (Encodable.encode (x, n)) = Part.some (φ x n) := by
+    intro x n
+    rw [hc]
+    simp [Encodable.encodek, Encodable.encode_nat]
+  -- Hence for every `x, n`, some `t` makes `evaln t c ... = some (φ x n)`.
+  have hevaln : ∀ x n, ∃ T, Nat.Partrec.Code.evaln T c (Encodable.encode (x, n)) = some (φ x n) := by
+    intro x n
+    have hmem : φ x n ∈ Nat.Partrec.Code.eval c (Encodable.encode (x, n)) := by
+      rw [heval]; exact Part.mem_some _
+    exact Nat.Partrec.Code.evaln_complete.mp hmem
+  -- `encode (x, n)` has `n` in its right pair component, so `n ≤ encode (x, n)`.
+  have hpair_ge : ∀ (x : List Bool) (n : ℕ), n ≤ Encodable.encode (x, n) := by
+    intro x n
+    have : Encodable.encode (x, n) = Nat.pair (Encodable.encode x) (Encodable.encode n) := rfl
+    rw [this, Encodable.encode_nat]
+    exact Nat.right_le_pair _ _
+  -- Candidate bound: dyadic (candidate e t n x) t ≤ μ x.
+  have hcand_le : ∀ t n x, dyadic (candidate e t n x) t ≤ μ x := by
+    intro t n x
+    unfold candidate
+    cases hev : Nat.Partrec.Code.evaln t (codeOf e) (Encodable.encode (x, n)) with
+    | none => simp [dyadic]
+    | some k =>
+      -- evaln succeeded with value k. By evaln_sound, k ∈ eval c ... = some (φ x n), so k = φ x n.
+      have hmem : k ∈ Nat.Partrec.Code.evaln t c (Encodable.encode (x, n)) := by
+        rw [hcodeOf] at hev; exact hev
+      have hin : k ∈ Nat.Partrec.Code.eval c (Encodable.encode (x, n)) :=
+        Nat.Partrec.Code.evaln_sound hmem
+      rw [heval] at hin
+      have hkφ : k = φ x n := Part.mem_some_iff.mp hin
+      -- n must satisfy: encode (x,n) < t, so n ≤ encode (x,n) < t ⟹ n < t.
+      have hbd : Encodable.encode (x, n) < t := Nat.Partrec.Code.evaln_bound hmem
+      have hn_lt : n < t := lt_of_le_of_lt (hpair_ge x n) hbd
+      have hn_le : n ≤ t := hn_lt.le
+      -- dyadic (k * 2^(t-n)) t = dyadic k n = dyadic (φ x n) n ≤ μ x.
+      rw [dyadic_mul_shift k n t hn_le, hkφ, ← hφ_sup x]
+      exact le_iSup (fun m => dyadic (φ x m) m) n
+  -- fApprox bound at level t: dyadic (fApprox e t x) t ≤ μ x.
+  have hfApprox_le : ∀ t x, dyadic (fApprox e t x) t ≤ μ x := by
+    intro t x
+    unfold fApprox
+    obtain ⟨m, _, hm_eq⟩ :=
+      Finset.exists_mem_eq_sup (Finset.range (t + 1)) Finset.nonempty_range_add_one
+        (fun n => candidate e t n x)
+    rw [hm_eq]
+    exact hcand_le t m x
+  -- gApprox bound by minimality (d).
+  have hgApprox_le : ∀ t x, dyadic (gApprox e t x) t ≤ μ x := fun t x =>
+    gApprox_le_of_fApprox_le μ (fun y => hfApprox_le t y) x
+  -- freezeStage = t for the chosen e, since every stage is safe.
+  have hall_safe : ∀ s, (gApprox e s [] : ℝ≥0∞) ≤ 2 ^ s := by
+    intro s
+    have h1 : dyadic (gApprox e s []) s ≤ μ [] := hgApprox_le s []
+    have h2 : μ ([] : List Bool) ≤ 1 := μ.empty_le_one
+    have h3 : dyadic (gApprox e s []) s ≤ 1 := h1.trans h2
+    unfold dyadic at h3
+    have h2p0 : (2 : ℝ≥0∞) ^ s ≠ 0 := by positivity
+    have h2pt : (2 : ℝ≥0∞) ^ s ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+    rwa [ENNReal.div_le_iff h2p0 h2pt, one_mul] at h3
+  have hfreeze : ∀ t, freezeStage e t = t := by
+    intro t
+    unfold freezeStage
+    apply le_antisymm
+    · apply Finset.sup_le
+      intro n hn
+      split_ifs
+      · exact Nat.lt_succ_iff.mp (Finset.mem_range.mp hn)
+      · exact Nat.zero_le _
+    · refine Finset.le_sup (f := fun s => if (gApprox e s [] : ℝ≥0∞) ≤ 2^s then s else 0)
+        (b := t) (Finset.mem_range.mpr (by omega)) |>.trans_eq' ?_
+      rw [if_pos (hall_safe t)]
+  -- enumFun e x = sup t dyadic (gApprox e t x) t.
+  have henum_eq : ∀ x, enumFun e x = ⨆ t, dyadic (gApprox e t x) t := by
+    intro x
+    unfold enumFun GApprox
+    exact iSup_congr fun t => by rw [hfreeze t]
+  apply Semimeasure.ext
+  intro x
+  show enumFun e x = μ x
+  rw [henum_eq x]
+  apply le_antisymm
+  · exact iSup_le fun t => hgApprox_le t x
+  · -- ≥: sup over n of dyadic (φ x n) n = μ x, and each ≤ sup over t.
+    rw [← hφ_sup x]
+    apply iSup_le
+    intro n
+    -- Find a t large enough: t ≥ max(encode(x,n), T(x,n), n, |x|).
+    obtain ⟨T, hT⟩ := hevaln x n
+    set t₀ := max T (max (Encodable.encode (x, n) + 1) (max (n + 1) x.length)) with ht₀_def
+    have hT_le : T ≤ t₀ := le_max_left _ _
+    have henc_lt : Encodable.encode (x, n) < t₀ :=
+      Nat.lt_of_succ_le (le_max_of_le_right (le_max_left _ _))
+    have hn_le : n ≤ t₀ :=
+      (Nat.le_succ n).trans (le_max_of_le_right (le_max_of_le_right (le_max_left _ _)))
+    have hx_le : x.length ≤ t₀ :=
+      le_max_of_le_right (le_max_of_le_right (le_max_right _ _))
+    -- at level t₀, evaln succeeds
+    have hev_t₀ : Nat.Partrec.Code.evaln t₀ c (Encodable.encode (x, n)) = some (φ x n) := by
+      have hmem : φ x n ∈ Nat.Partrec.Code.evaln T c (Encodable.encode (x, n)) := hT
+      have hnext := Nat.Partrec.Code.evaln_mono hT_le hmem
+      exact hnext
+    have hev_t₀' : Nat.Partrec.Code.evaln t₀ (codeOf e) (Encodable.encode (x, n)) = some (φ x n) := by
+      rw [hcodeOf]; exact hev_t₀
+    -- Then candidate e t₀ n x = φ x n * 2^(t₀-n), so dyadic = dyadic (φ x n) n.
+    have hcand_val : dyadic (candidate e t₀ n x) t₀ = dyadic (φ x n) n :=
+      candidate_dyadic_eq hn_le hev_t₀'
+    -- candidate ≤ fApprox at t₀ (since n ∈ range (t₀+1))
+    have hc_le_f : dyadic (candidate e t₀ n x) t₀ ≤ dyadic (fApprox e t₀ x) t₀ := by
+      apply dyadic_mono_num
+      unfold fApprox
+      exact Finset.le_sup (f := fun m => candidate e t₀ m x)
+        (Finset.mem_range.mpr (by omega : n < t₀ + 1))
+    -- fApprox ≤ gApprox at t₀ (since |x| ≤ t₀)
+    have hf_le_g : dyadic (fApprox e t₀ x) t₀ ≤ dyadic (gApprox e t₀ x) t₀ :=
+      dyadic_mono_num (fApprox_le_gApprox e t₀ x hx_le)
+    -- Chain
+    calc dyadic (φ x n) n
+        = dyadic (candidate e t₀ n x) t₀ := hcand_val.symm
+      _ ≤ dyadic (fApprox e t₀ x) t₀ := hc_le_f
+      _ ≤ dyadic (gApprox e t₀ x) t₀ := hf_le_g
+      _ ≤ _ := le_iSup (fun t => dyadic (gApprox e t x) t) t₀
 
 /-! ### Uniform enumerability
 

@@ -318,7 +318,7 @@ private theorem dyadic_sub_nat (p q n : ℕ) :
 
 /-- `dyadic (a * 2^(n-b)) n = dyadic a b` when `b ≤ n`. Factoring out the shared
 power of 2 in the numerator and denominator. -/
-private theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
+theorem dyadic_mul_shift (a b n : ℕ) (h : b ≤ n) :
     dyadic (a * 2^(n - b)) n = dyadic a b := by
   unfold dyadic
   push_cast
