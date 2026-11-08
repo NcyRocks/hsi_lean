@@ -276,18 +276,84 @@ theorem gApprox_le_of_fApprox_le {e t : ℕ} (μ : Semimeasure)
 
 /-! ### Properties of `GApprox` and `enumFun` -/
 
-/-- `GApprox e t` satisfies the extend inequality (uses (a)). -/
+/-- `candidate e 0 _ _ = 0` since `evaln 0` always fails. -/
+theorem candidate_zero (e n : ℕ) (x : List Bool) : candidate e 0 n x = 0 := by
+  unfold candidate
+  simp [Nat.Partrec.Code.evaln]
+
+/-- `fApprox e 0 x = 0`. -/
+theorem fApprox_zero (e : ℕ) (x : List Bool) : fApprox e 0 x = 0 := by
+  unfold fApprox
+  apply Nat.le_zero.mp
+  apply Finset.sup_le
+  intro n _; rw [candidate_zero]
+
+/-- `gApprox e 0 [] = 0`. -/
+theorem gApprox_zero_root (e : ℕ) : gApprox e 0 [] = 0 := by
+  rw [gApprox_eq_fApprox_of_length_eq (by rfl : ([] : List Bool).length = 0),
+      fApprox_zero]
+
+/-- The freezeStage picks a stage `s` at which `g e s []` is bounded by `2^s`. -/
+theorem freezeStage_safe (e t : ℕ) :
+    (gApprox e (freezeStage e t) [] : ℝ≥0∞) ≤ 2 ^ (freezeStage e t) := by
+  unfold freezeStage
+  obtain ⟨m, _, hm_eq⟩ :=
+    Finset.exists_mem_eq_sup (Finset.range (t + 1)) Finset.nonempty_range_add_one
+      (fun s => if (gApprox e s [] : ℝ≥0∞) ≤ 2 ^ s then s else 0)
+  rw [hm_eq]
+  split_ifs with hc
+  · exact hc
+  · rw [gApprox_zero_root]; simp
+
+/-- `freezeStage` is monotone in `t`. -/
+theorem freezeStage_mono (e : ℕ) : Monotone (freezeStage e) := by
+  intro s t h
+  unfold freezeStage
+  exact Finset.sup_mono (Finset.range_subset_range.mpr (Nat.succ_le_succ h))
+
+/-- `GApprox e t` satisfies the extend inequality (uses (a) + dyadic_add). -/
 theorem GApprox_extend_le (e t : ℕ) (x : List Bool) :
     GApprox e t (x ++ [false]) + GApprox e t (x ++ [true]) ≤ GApprox e t x := by
-  sorry
+  unfold GApprox
+  rw [← dyadic_add]
+  exact dyadic_mono_num (gApprox_extend_le e (freezeStage e t) x)
 
 /-- `GApprox e t []` is at most 1 (by construction of the freeze). -/
 theorem GApprox_root_le_one (e t : ℕ) : GApprox e t [] ≤ 1 := by
-  sorry
+  unfold GApprox dyadic
+  have hs := freezeStage_safe e t
+  set s := freezeStage e t
+  have h2 : (2 : ℝ≥0∞)^s ≠ 0 := by positivity
+  have h2t : (2 : ℝ≥0∞)^s ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  rw [ENNReal.div_le_iff h2 h2t, one_mul]
+  exact hs
+
+/-- Local copy of the dyadic level-shift fact (private in `Basic.lean`). -/
+theorem dyadic_double_succ (a t : ℕ) : dyadic (2 * a) (t + 1) = dyadic a t := by
+  unfold dyadic
+  push_cast
+  rw [pow_succ, mul_comm ((2 : ℝ≥0∞) ^ t) 2,
+      ENNReal.mul_div_mul_left (a := (a : ℝ≥0∞)) (b := (2 : ℝ≥0∞) ^ t)
+        (by norm_num : (2 : ℝ≥0∞) ≠ 0) (by norm_num : (2 : ℝ≥0∞) ≠ ⊤)]
+
+/-- Reading `gApprox` at level `t` vs `t+1`: level up preserves (or increases) the dyadic value. -/
+theorem gApprox_dyadic_le_succ (e t : ℕ) (x : List Bool) :
+    dyadic (gApprox e t x) t ≤ dyadic (gApprox e (t + 1) x) (t + 1) := by
+  have hmul := gApprox_mono_step e t x
+  calc dyadic (gApprox e t x) t
+      = dyadic (2 * gApprox e t x) (t + 1) := (dyadic_double_succ _ _).symm
+    _ ≤ dyadic (gApprox e (t + 1) x) (t + 1) := dyadic_mono_num hmul
+
+/-- Monotonicity of `dyadic (g e t x) t` in `t`. -/
+theorem gApprox_dyadic_mono (e : ℕ) (x : List Bool) :
+    Monotone (fun t => dyadic (gApprox e t x) t) :=
+  monotone_nat_of_le_succ (fun t => gApprox_dyadic_le_succ e t x)
 
 /-- `GApprox e t` is monotone in `t`. -/
 theorem GApprox_mono (e : ℕ) : Monotone (GApprox e · · : ℕ → List Bool → ℝ≥0∞) := by
-  sorry
+  intro s t h x
+  unfold GApprox
+  exact gApprox_dyadic_mono e x (freezeStage_mono e h)
 
 theorem GApprox_mono' (e : ℕ) (x : List Bool) : Monotone (fun t => GApprox e t x) := by
   intro s t h
