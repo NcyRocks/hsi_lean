@@ -543,21 +543,140 @@ theorem enum_complete : ∀ μ : Semimeasure, μ.Enumerable → ∃ e, enum e = 
       _ ≤ dyadic (gApprox e t₀ x) t₀ := hf_le_g
       _ ≤ _ := le_iSup (fun t => dyadic (gApprox e t x) t) t₀
 
-/-! ### Uniform enumerability
+/-! ### Computable formulation of `gApprox`
 
-The task brief flags this as "likely the hardest engineering step": the
-bottom-up `gApprox` recursion needs a computable implementation, but a
-`Nat.rec`-based state is a function `List Bool → ℕ`, which is not
-`Primcodable`. The recommended workaround is to carry a finite
-memoisation table (a `List ℕ` of values for all strings of the current
-length), but assembling it as a `Primrec` / `Computable` is nontrivial.
+To prove `UniformlyEnumerable enum`, we need `gApprox` computable in `(e, t, x)`.
+The recursion is bottom-up on `t - x.length`; we materialise this as a DP table
+iterated via `Nat.rec`, with the state at step `n` being a `List ℕ` of all
+`gApprox e t y` values for `y = x ++ b` with `|b| = t - x.length - n`. -/
 
-The LSC approximant we would use here is
-`φ ((e, x), t) := gApprox e (freezeStage e t) x * 2^(t - freezeStage e t)`,
-giving `dyadic (φ ((e,x), t)) t = GApprox e t x`, whose sup is `enum e x`.
-Monotonicity in `t` and the sup identity are immediate from the already-proven
-`GApprox_mono` and `enumFun = ⨆ GApprox`. The missing piece is purely
-Computability. -/
+/-- Length-`d` binary string with MSB-first index `i` (bits of `i`, padded to `d`). -/
+private def strOfIdx : ℕ → ℕ → List Bool
+  | 0, _ => []
+  | d + 1, i => strOfIdx d (i / 2) ++ [decide (i % 2 = 1)]
+
+private theorem strOfIdx_length : ∀ d i, (strOfIdx d i).length = d
+  | 0, _ => rfl
+  | d+1, i => by simp [strOfIdx, strOfIdx_length d (i / 2)]
+
+private theorem strOfIdx_append_false (d i : ℕ) :
+    strOfIdx d i ++ [false] = strOfIdx (d + 1) (2 * i) := by
+  show strOfIdx d i ++ [false] = strOfIdx d ((2 * i) / 2) ++ [decide ((2 * i) % 2 = 1)]
+  rw [show (2 * i) / 2 = i by omega, show (2 * i) % 2 = 0 by omega]
+  rfl
+
+private theorem strOfIdx_append_true (d i : ℕ) :
+    strOfIdx d i ++ [true] = strOfIdx (d + 1) (2 * i + 1) := by
+  show strOfIdx d i ++ [true] = strOfIdx d ((2 * i + 1) / 2) ++ [decide ((2 * i + 1) % 2 = 1)]
+  rw [show (2 * i + 1) / 2 = i by omega, show (2 * i + 1) % 2 = 1 by omega]
+  rfl
+
+/-- One DP step: produce the row at depth `j` from the row at depth `j+1`. -/
+private noncomputable def dpStep (e t : ℕ) (x : List Bool) (j : ℕ) (prev : List ℕ) : List ℕ :=
+  (List.range (2^j)).map fun i =>
+    max (fApprox e t (x ++ strOfIdx j i)) (prev.getD (2*i) 0 + prev.getD (2*i + 1) 0)
+
+/-- Base row of the DP table at depth `k = t - x.length`. -/
+private noncomputable def dpBase (e t : ℕ) (x : List Bool) (k : ℕ) : List ℕ :=
+  (List.range (2^k)).map fun i => fApprox e t (x ++ strOfIdx k i)
+
+/-- DP table iteration. After `n` steps, holds the row at depth `k - n`
+(where `k = t - x.length`). -/
+private noncomputable def dpIter (e t : ℕ) (x : List Bool) : ℕ → List ℕ
+  | 0 => dpBase e t x (t - x.length)
+  | n + 1 => dpStep e t x (t - x.length - n - 1) (dpIter e t x n)
+
+/-- Table-based `gApprox`. -/
+private noncomputable def gApproxComp (e t : ℕ) (x : List Bool) : ℕ :=
+  if t < x.length then 0
+  else (dpIter e t x (t - x.length)).getD 0 0
+
+/-- DP invariant: after `n` steps, the row is `gApprox` at every length-`(k-n)`
+extension of `x` (indexed canonically). -/
+private theorem dpIter_spec (e t : ℕ) (x : List Bool) (ht : x.length ≤ t) :
+    ∀ n ≤ t - x.length,
+      dpIter e t x n = (List.range (2^(t - x.length - n))).map
+        fun i => gApprox e t (x ++ strOfIdx (t - x.length - n) i) := by
+  intro n hn
+  induction n with
+  | zero =>
+    show dpBase e t x (t - x.length) = _
+    rw [Nat.sub_zero]
+    apply List.map_congr_left
+    intro i _
+    symm
+    apply gApprox_eq_fApprox_of_length_eq
+    rw [List.length_append, strOfIdx_length]
+    omega
+  | succ n ih =>
+    have hn_le : n ≤ t - x.length := le_trans (Nat.le_succ n) hn
+    have ih' := ih hn_le
+    show dpStep e t x (t - x.length - n - 1) (dpIter e t x n) = _
+    rw [ih']
+    unfold dpStep
+    apply List.map_congr_left
+    intro i hi
+    have hi_lt : i < 2^(t - x.length - n - 1) := List.mem_range.mp hi
+    have hpow : (2 : ℕ)^(t - x.length - n) = 2 * 2^(t - x.length - n - 1) := by
+      rw [show t - x.length - n = (t - x.length - n - 1) + 1 by omega, pow_succ,
+        Nat.mul_comm]
+      simp
+    have h2i_lt : 2 * i < 2^(t - x.length - n) := by omega
+    have h2i1_lt : 2 * i + 1 < 2^(t - x.length - n) := by omega
+    -- getD on range-map: indices 2*i and 2*i+1 are in range.
+    have hget_false : ((List.range (2^(t - x.length - n))).map
+        fun j => gApprox e t (x ++ strOfIdx (t - x.length - n) j)).getD (2 * i) 0
+        = gApprox e t (x ++ strOfIdx (t - x.length - n) (2 * i)) := by
+      rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+          List.getElem?_range h2i_lt]
+      rfl
+    have hget_true : ((List.range (2^(t - x.length - n))).map
+        fun j => gApprox e t (x ++ strOfIdx (t - x.length - n) j)).getD (2 * i + 1) 0
+        = gApprox e t (x ++ strOfIdx (t - x.length - n) (2 * i + 1)) := by
+      rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+          List.getElem?_range h2i1_lt]
+      rfl
+    rw [hget_false, hget_true]
+    -- strOfIdx (k-n) (2i) = strOfIdx (k-n-1) i ++ [false]
+    have heq_false : strOfIdx (t - x.length - n) (2 * i)
+        = strOfIdx (t - x.length - n - 1) i ++ [false] := by
+      rw [strOfIdx_append_false]; congr 1; omega
+    have heq_true : strOfIdx (t - x.length - n) (2 * i + 1)
+        = strOfIdx (t - x.length - n - 1) i ++ [true] := by
+      rw [strOfIdx_append_true]; congr 1; omega
+    rw [heq_false, heq_true]
+    rw [show (x ++ (strOfIdx (t - x.length - n - 1) i ++ [false]))
+          = (x ++ strOfIdx (t - x.length - n - 1) i) ++ [false] by rw [List.append_assoc]]
+    rw [show (x ++ (strOfIdx (t - x.length - n - 1) i ++ [true]))
+          = (x ++ strOfIdx (t - x.length - n - 1) i) ++ [true] by rw [List.append_assoc]]
+    symm
+    apply gApprox_eq_of_length_lt
+    rw [List.length_append, strOfIdx_length]
+    omega
+
+/-- The table-based version agrees with the mathematical definition. -/
+private theorem gApproxComp_eq (e t : ℕ) (x : List Bool) :
+    gApproxComp e t x = gApprox e t x := by
+  unfold gApproxComp
+  split_ifs with h
+  · symm; exact gApprox_eq_zero_of_length_gt h
+  · have ht : x.length ≤ t := Nat.not_lt.mp h
+    have hspec := dpIter_spec e t x ht (t - x.length) le_rfl
+    rw [hspec]
+    have hsub : t - x.length - (t - x.length) = 0 := by omega
+    rw [hsub]
+    show (((List.range 1).map fun i => gApprox e t (x ++ strOfIdx 0 i)).getD 0 0)
+        = gApprox e t x
+    simp [strOfIdx]
+
+/-! ### Uniform enumerability (final step, still outstanding)
+
+We have `gApproxComp = gApprox`, so the LSC approximant we want is
+`φ ((e,x), t) := gApproxComp e (freezeStage e t) x * 2^(t - freezeStage e t)`.
+Monotonicity and sup follow from `GApprox_mono` and `enumFun = ⨆ GApprox`; the
+remaining work is to prove this function `Computable` in `((e, x), t)`, which
+requires (a) `Primrec gApproxComp` via the DP, and (b) `Primrec freezeStage`
+via a `Nat.rec`-friendly reformulation. -/
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
