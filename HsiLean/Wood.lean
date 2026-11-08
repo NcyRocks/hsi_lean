@@ -669,14 +669,63 @@ private theorem gApproxComp_eq (e t : ℕ) (x : List Bool) :
         = gApprox e t x
     simp [strOfIdx]
 
+/-! ### Nat-recursive `freezeStage`
+
+For Primrec, we need `freezeStage` as a `Nat.rec`. The existing definition uses
+`Finset.range.sup` of an ENNReal condition; we provide a `Nat.rec` form with a
+pure-Nat condition, and prove the two agree. -/
+
+/-- Pure-ℕ, `Nat.rec`-based form of `freezeStage`. Uses `gApproxComp` and the
+Nat condition `gApproxComp e s [] ≤ 2^s`. -/
+private noncomputable def freezeStageNat (e t : ℕ) : ℕ :=
+  Nat.rec (motive := fun _ => ℕ) 0
+    (fun s acc => max acc (if gApproxComp e s [] ≤ 2^s then s else 0))
+    (t + 1)
+
+/-- General lemma: `Finset.range (t+1).sup f` equals the `Nat.rec` accumulator. -/
+private theorem range_sup_eq_rec (t : ℕ) (f : ℕ → ℕ) :
+    (Finset.range (t + 1)).sup f
+      = Nat.rec (motive := fun _ => ℕ) 0 (fun s acc => max acc (f s)) (t + 1) := by
+  induction t with
+  | zero => simp
+  | succ k ih =>
+    rw [Finset.range_add_one, Finset.sup_insert]
+    show max (f (k+1)) ((Finset.range (k+1)).sup f) = _
+    rw [ih]
+    exact max_comm _ _
+
+/-- The two forms of `freezeStage` agree. -/
+private theorem freezeStageNat_eq (e t : ℕ) : freezeStageNat e t = freezeStage e t := by
+  have hcond : ∀ s, ((gApprox e s [] : ℝ≥0∞) ≤ 2 ^ s) ↔ gApprox e s [] ≤ 2 ^ s := by
+    intro s
+    rw [show (2 : ℝ≥0∞) ^ s = ((2 ^ s : ℕ) : ℝ≥0∞) by push_cast; rfl]
+    exact_mod_cast Iff.rfl
+  have hgac : ∀ s, gApproxComp e s [] = gApprox e s [] := fun s => gApproxComp_eq _ _ _
+  have hbranch : ∀ s,
+      (if gApproxComp e s [] ≤ 2^s then s else 0)
+        = (if ((gApprox e s [] : ℝ≥0∞) ≤ 2^s) then s else 0) := by
+    intro s
+    rw [hgac s]
+    split_ifs with h h' h'
+    · rfl
+    · exact absurd ((hcond s).mpr h) h'
+    · exact absurd ((hcond s).mp h') h
+    · rfl
+  unfold freezeStageNat freezeStage
+  rw [range_sup_eq_rec]
+  have hstep : (fun s acc : ℕ => max acc (if gApproxComp e s [] ≤ 2^s then s else 0))
+      = (fun s acc : ℕ => max acc (if ((gApprox e s [] : ℝ≥0∞) ≤ 2^s) then s else 0)) := by
+    funext s acc
+    rw [hbranch s]
+  rw [hstep]
+
 /-! ### Uniform enumerability (final step, still outstanding)
 
-We have `gApproxComp = gApprox`, so the LSC approximant we want is
-`φ ((e,x), t) := gApproxComp e (freezeStage e t) x * 2^(t - freezeStage e t)`.
+With `gApproxComp = gApprox` and `freezeStageNat = freezeStage`, the LSC
+approximant we want is
+`φ ((e,x), t) := gApproxComp e (freezeStageNat e t) x * 2^(t - freezeStageNat e t)`.
 Monotonicity and sup follow from `GApprox_mono` and `enumFun = ⨆ GApprox`; the
-remaining work is to prove this function `Computable` in `((e, x), t)`, which
-requires (a) `Primrec gApproxComp` via the DP, and (b) `Primrec freezeStage`
-via a `Nat.rec`-friendly reformulation. -/
+remaining work is to prove this function `Computable` in `((e, x), t)`. -/
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
