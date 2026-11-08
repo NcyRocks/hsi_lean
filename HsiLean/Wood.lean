@@ -749,7 +749,7 @@ Each piece Primrec, culminating in the LSC approximant. -/
 
 /-- `strOfIdx` is Primrec. -/
 private theorem strOfIdx_primrec : Primrec₂ strOfIdx := by
-  show Primrec (fun p : ℕ × ℕ => strOfIdx p.1 p.2)
+  change Primrec (fun p : ℕ × ℕ => strOfIdx p.1 p.2)
   unfold strOfIdx
   have h_range : Primrec (fun p : ℕ × ℕ => List.range p.1) :=
     Primrec.list_range.comp Primrec.fst
@@ -770,6 +770,95 @@ private theorem strOfIdx_primrec : Primrec₂ strOfIdx := by
       Primrec.nat_mod.comp h_div (Primrec.const 2)
     exact (PrimrecRel.comp Primrec.eq h_mod (Primrec.const 1)).decide
   exact Primrec.list_map h_range h_inner
+
+/-- `candidate` is Primrec. Takes args as `((e, t, n), x)`. -/
+private theorem candidate_primrec :
+    Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool =>
+      candidate q.1.1.1 q.1.1.2 q.1.2 q.2) := by
+  unfold candidate
+  have h_e : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => q.1.1.1) :=
+    Primrec.fst.comp (Primrec.fst.comp Primrec.fst)
+  have h_t : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => q.1.1.2) :=
+    Primrec.snd.comp (Primrec.fst.comp Primrec.fst)
+  have h_n : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => q.1.2) :=
+    Primrec.snd.comp Primrec.fst
+  have h_x : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => q.2) := Primrec.snd
+  have h_codeOf : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => codeOf q.1.1.1) :=
+    (Primrec.ofNat Nat.Partrec.Code).comp h_e
+  have h_enc : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool =>
+      Encodable.encode (q.2, q.1.2)) :=
+    Primrec.encode.comp (Primrec.pair h_x h_n)
+  have h_ev : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool =>
+      Nat.Partrec.Code.evaln q.1.1.2 (codeOf q.1.1.1) (Encodable.encode (q.2, q.1.2))) :=
+    Nat.Partrec.Code.primrec_evaln.comp
+      (Primrec.pair (Primrec.pair h_t h_codeOf) h_enc)
+  have h_tsub : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => q.1.1.2 - q.1.2) :=
+    Primrec.nat_sub.comp h_t h_n
+  have h_pow : Primrec (fun q : ((ℕ × ℕ) × ℕ) × List Bool => (2 : ℕ)^(q.1.1.2 - q.1.2)) :=
+    Primrec.nat_pow.comp (Primrec.const 2) h_tsub
+  have h_some : Primrec₂ (fun (q : ((ℕ × ℕ) × ℕ) × List Bool) (k : ℕ) =>
+      k * 2^(q.1.1.2 - q.1.2)) := by
+    change Primrec (fun p : (((ℕ × ℕ) × ℕ) × List Bool) × ℕ => p.2 * 2^(p.1.1.1.2 - p.1.1.2))
+    exact Primrec.nat_mul.comp Primrec.snd (h_pow.comp Primrec.fst)
+  refine (Primrec.option_casesOn h_ev (Primrec.const 0) h_some).of_eq ?_
+  intro q
+  cases Nat.Partrec.Code.evaln q.1.1.2 (codeOf q.1.1.1) (Encodable.encode (q.2, q.1.2)) <;> simp
+
+/-- Max is associative and commutative on Nat, so initial-value threads through foldr. -/
+private theorem list_foldr_max_initial (l : List ℕ) (a : ℕ) :
+    l.foldr max a = max a (l.foldr max 0) := by
+  induction l with
+  | nil => simp
+  | cons h t ih =>
+    change max h (t.foldr max a) = max a (max h (t.foldr max 0))
+    rw [ih]
+    rw [← max_assoc, max_comm h a, max_assoc]
+
+/-- `(Finset.range (t+1)).sup f = ((List.range (t+1)).map f).foldr max 0`. -/
+private theorem range_sup_eq_foldr (t : ℕ) (f : ℕ → ℕ) :
+    (Finset.range (t + 1)).sup f = ((List.range (t + 1)).map f).foldr max 0 := by
+  induction t with
+  | zero => simp
+  | succ k ih =>
+    rw [Finset.range_add_one, Finset.sup_insert, ih]
+    -- RHS: `(List.map f (List.range (k+2))).foldr max 0`.
+    conv_rhs =>
+      rw [show k + 1 + 1 = (k + 1) + 1 from rfl]
+      rw [List.range_succ]
+      rw [List.map_append, List.map_singleton, List.foldr_append]
+      -- Now: (List.map f (List.range (k+1))).foldr max ([f (k+1)].foldr max 0)
+      rw [show ([f (k+1)] : List ℕ).foldr max 0 = f (k+1) from by
+        change max (f (k+1)) 0 = f (k+1); exact Nat.max_zero _]
+    -- Now goal: max (f (k+1)) (...foldr max 0) = ...foldr max (f (k+1))
+    exact (list_foldr_max_initial _ (f (k+1))).symm
+
+/-- `fApprox` is Primrec. -/
+private theorem fApprox_primrec :
+    Primrec (fun p : (ℕ × ℕ) × List Bool => fApprox p.1.1 p.1.2 p.2) := by
+  -- Prove Primrec of the list-foldr form, then transfer via equivalence.
+  have hfA_list : Primrec (fun p : (ℕ × ℕ) × List Bool =>
+      ((List.range (p.1.2 + 1)).map (fun n => candidate p.1.1 p.1.2 n p.2)).foldr max 0) := by
+    have h_range : Primrec (fun p : (ℕ × ℕ) × List Bool => List.range (p.1.2 + 1)) :=
+      Primrec.list_range.comp (Primrec.succ.comp (Primrec.snd.comp Primrec.fst))
+    have h_inner : Primrec₂ (fun (p : (ℕ × ℕ) × List Bool) (n : ℕ) =>
+        candidate p.1.1 p.1.2 n p.2) := by
+      change Primrec (fun q : ((ℕ × ℕ) × List Bool) × ℕ =>
+        candidate q.1.1.1 q.1.1.2 q.2 q.1.2)
+      exact candidate_primrec.comp (Primrec.pair
+        (Primrec.pair (Primrec.fst.comp Primrec.fst) Primrec.snd)
+        (Primrec.snd.comp Primrec.fst))
+    have h_map : Primrec (fun p : (ℕ × ℕ) × List Bool =>
+        (List.range (p.1.2 + 1)).map (fun n => candidate p.1.1 p.1.2 n p.2)) :=
+      Primrec.list_map h_range h_inner
+    -- foldr max 0: step is Primrec₂ (fun p (bs : ℕ × ℕ) => max bs.1 bs.2)
+    have h_step : Primrec₂ (fun (_ : (ℕ × ℕ) × List Bool) (bs : ℕ × ℕ) => max bs.1 bs.2) := by
+      change Primrec (fun q : ((ℕ × ℕ) × List Bool) × (ℕ × ℕ) => max q.2.1 q.2.2)
+      exact Primrec.nat_max.comp (Primrec.fst.comp Primrec.snd) (Primrec.snd.comp Primrec.snd)
+    exact Primrec.list_foldr h_map (Primrec.const 0) h_step
+  refine hfA_list.of_eq ?_
+  intro p
+  unfold fApprox
+  rw [range_sup_eq_foldr]
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
