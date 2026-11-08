@@ -896,16 +896,193 @@ private theorem freezeStage_le_self (e t : ℕ) : freezeStage e t ≤ t := by
   · exact Nat.lt_succ_iff.mp (Finset.mem_range.mp hn)
   · exact Nat.zero_le _
 
-/-- The LSC approximant we would use, factored into separate Primrec
-proofs for each DP layer. The `fApprox_primrec`-dependent compositions
-at 5-6 levels of `Prod` nesting hit a persistent whnf timeout in the
-elaborator even at 1.2M heartbeats; see RUN-REPORT.md for the attempted
-chain. -/
+/-! Argument-tuple types for the DP Primrec chain. Abbreviations keep the
+deeply-nested projections bearable. -/
+
+private abbrev ArgStep : Type := (((ℕ × ℕ) × List Bool) × ℕ) × List ℕ
+private abbrev ArgIter : Type := ((ℕ × ℕ) × List Bool) × ℕ
+
+set_option maxHeartbeats 4000000 in
+/-- `dpStep` is Primrec. -/
+private theorem dpStep_primrec :
+    Primrec (fun p : ArgStep => dpStep p.1.1.1.1 p.1.1.1.2 p.1.1.2 p.1.2 p.2) := by
+  unfold dpStep
+  have h_j : Primrec (fun p : ArgStep => p.1.2) := Primrec.snd.comp Primrec.fst
+  have h_range : Primrec (fun p : ArgStep => List.range (2^p.1.2)) :=
+    Primrec.list_range.comp (Primrec.nat_pow.comp (Primrec.const 2) h_j)
+  have h_inner_u : Primrec (fun q : ArgStep × ℕ =>
+      max (fApprox q.1.1.1.1.1 q.1.1.1.1.2 (q.1.1.1.2 ++ strOfIdx q.1.1.2 q.2))
+          (q.1.2.getD (2 * q.2) 0 + q.1.2.getD (2 * q.2 + 1) 0)) := by
+    have h_e : Primrec (fun q : ArgStep × ℕ => q.1.1.1.1.1) :=
+      Primrec.fst.comp (Primrec.fst.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst)))
+    have h_t : Primrec (fun q : ArgStep × ℕ => q.1.1.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst)))
+    have h_x : Primrec (fun q : ArgStep × ℕ => q.1.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst))
+    have h_j' : Primrec (fun q : ArgStep × ℕ => q.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp Primrec.fst)
+    have h_prev : Primrec (fun q : ArgStep × ℕ => q.1.2) :=
+      Primrec.snd.comp Primrec.fst
+    have h_i : Primrec (fun q : ArgStep × ℕ => q.2) := Primrec.snd
+    have h_str : Primrec (fun q : ArgStep × ℕ => strOfIdx q.1.1.2 q.2) :=
+      strOfIdx_primrec.comp h_j' h_i
+    have h_app : Primrec (fun q : ArgStep × ℕ => q.1.1.1.2 ++ strOfIdx q.1.1.2 q.2) :=
+      Primrec.list_append.comp h_x h_str
+    have h_etx : Primrec (fun q : ArgStep × ℕ =>
+        ((q.1.1.1.1.1, q.1.1.1.1.2), q.1.1.1.2 ++ strOfIdx q.1.1.2 q.2)) :=
+      Primrec.pair (Primrec.pair h_e h_t) h_app
+    have h_fA : Primrec (fun q : ArgStep × ℕ =>
+        fApprox q.1.1.1.1.1 q.1.1.1.1.2 (q.1.1.1.2 ++ strOfIdx q.1.1.2 q.2)) :=
+      fApprox_primrec.comp h_etx
+    have h_2i : Primrec (fun q : ArgStep × ℕ => 2 * q.2) :=
+      Primrec.nat_mul.comp (Primrec.const 2) h_i
+    have h_2i1 : Primrec (fun q : ArgStep × ℕ => 2 * q.2 + 1) := Primrec.succ.comp h_2i
+    have h_g0 : Primrec (fun q : ArgStep × ℕ => q.1.2.getD (2 * q.2) 0) :=
+      (Primrec.list_getD 0).comp h_prev h_2i
+    have h_g1 : Primrec (fun q : ArgStep × ℕ => q.1.2.getD (2 * q.2 + 1) 0) :=
+      (Primrec.list_getD 0).comp h_prev h_2i1
+    have h_sum : Primrec (fun q : ArgStep × ℕ =>
+        q.1.2.getD (2 * q.2) 0 + q.1.2.getD (2 * q.2 + 1) 0) :=
+      Primrec.nat_add.comp h_g0 h_g1
+    exact Primrec.nat_max.comp h_fA h_sum
+  exact Primrec.list_map h_range h_inner_u.to₂
+
+set_option maxHeartbeats 4000000 in
+/-- `dpIter` is Primrec. -/
+private theorem dpIter_primrec :
+    Primrec (fun p : ArgIter => dpIter p.1.1.1 p.1.1.2 p.1.2 p.2) := by
+  have hrec : ∀ p : ArgIter,
+      dpIter p.1.1.1 p.1.1.2 p.1.2 p.2 =
+        Nat.rec (motive := fun _ => List ℕ)
+          (dpBase p.1.1.1 p.1.1.2 p.1.2 (p.1.1.2 - p.1.2.length))
+          (fun m prev => dpStep p.1.1.1 p.1.1.2 p.1.2
+              (p.1.1.2 - p.1.2.length - m - 1) prev)
+          p.2 := by
+    intro p
+    induction p.2 with
+    | zero => rfl
+    | succ k ih => show dpStep _ _ _ _ _ = _; rw [ih]
+  refine Primrec.of_eq ?_ (fun p => (hrec p).symm)
+  have h_f : Primrec (fun p : ArgIter => p.2) := Primrec.snd
+  have h_g : Primrec (fun p : ArgIter =>
+      dpBase p.1.1.1 p.1.1.2 p.1.2 (p.1.1.2 - p.1.2.length)) := by
+    have h_e : Primrec (fun p : ArgIter => p.1.1.1) :=
+      Primrec.fst.comp (Primrec.fst.comp Primrec.fst)
+    have h_t : Primrec (fun p : ArgIter => p.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp Primrec.fst)
+    have h_x : Primrec (fun p : ArgIter => p.1.2) :=
+      Primrec.snd.comp Primrec.fst
+    have h_xlen : Primrec (fun p : ArgIter => p.1.2.length) :=
+      Primrec.list_length.comp h_x
+    have h_sub : Primrec (fun p : ArgIter => p.1.1.2 - p.1.2.length) :=
+      Primrec.nat_sub.comp h_t h_xlen
+    have h_arg : Primrec (fun p : ArgIter =>
+        (((p.1.1.1, p.1.1.2), p.1.2), p.1.1.2 - p.1.2.length)) :=
+      Primrec.pair (Primrec.pair (Primrec.pair h_e h_t) h_x) h_sub
+    exact dpBase_primrec.comp h_arg
+  have h_h : Primrec₂ (fun (p : ArgIter) (q : ℕ × List ℕ) =>
+      dpStep p.1.1.1 p.1.1.2 p.1.2 (p.1.1.2 - p.1.2.length - q.1 - 1) q.2) := by
+    have h_e : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.1.1.1.1) :=
+      Primrec.fst.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst))
+    have h_t : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.1.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst))
+    have h_x : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp Primrec.fst)
+    have h_m : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.2.1) :=
+      Primrec.fst.comp Primrec.snd
+    have h_prev : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.2.2) :=
+      Primrec.snd.comp Primrec.snd
+    have h_xlen : Primrec (fun r : ArgIter × (ℕ × List ℕ) => r.1.1.2.length) :=
+      Primrec.list_length.comp h_x
+    have h_sub1 : Primrec (fun r : ArgIter × (ℕ × List ℕ) =>
+        r.1.1.1.2 - r.1.1.2.length) := Primrec.nat_sub.comp h_t h_xlen
+    have h_sub2 : Primrec (fun r : ArgIter × (ℕ × List ℕ) =>
+        r.1.1.1.2 - r.1.1.2.length - r.2.1) := Primrec.nat_sub.comp h_sub1 h_m
+    have h_sub3 : Primrec (fun r : ArgIter × (ℕ × List ℕ) =>
+        r.1.1.1.2 - r.1.1.2.length - r.2.1 - 1) :=
+      Primrec.nat_sub.comp h_sub2 (Primrec.const 1)
+    have h_arg : Primrec (fun r : ArgIter × (ℕ × List ℕ) =>
+        ((((r.1.1.1.1, r.1.1.1.2), r.1.1.2), r.1.1.1.2 - r.1.1.2.length - r.2.1 - 1), r.2.2)) :=
+      Primrec.pair
+        (Primrec.pair (Primrec.pair (Primrec.pair h_e h_t) h_x) h_sub3) h_prev
+    exact (dpStep_primrec.comp h_arg).to₂
+  exact Primrec.nat_rec' h_f h_g h_h
+
+set_option maxHeartbeats 4000000 in
+/-- `gApproxComp` is Primrec. -/
+private theorem gApproxComp_primrec :
+    Primrec (fun p : (ℕ × ℕ) × List Bool => gApproxComp p.1.1 p.1.2 p.2) := by
+  unfold gApproxComp
+  have h_e : Primrec (fun p : (ℕ × ℕ) × List Bool => p.1.1) := Primrec.fst.comp Primrec.fst
+  have h_t : Primrec (fun p : (ℕ × ℕ) × List Bool => p.1.2) := Primrec.snd.comp Primrec.fst
+  have h_x : Primrec (fun p : (ℕ × ℕ) × List Bool => p.2) := Primrec.snd
+  have h_xlen : Primrec (fun p : (ℕ × ℕ) × List Bool => p.2.length) :=
+    Primrec.list_length.comp h_x
+  have h_sub : Primrec (fun p : (ℕ × ℕ) × List Bool => p.1.2 - p.2.length) :=
+    Primrec.nat_sub.comp h_t h_xlen
+  have h_cond : PrimrecPred (fun p : (ℕ × ℕ) × List Bool => p.1.2 < p.2.length) :=
+    PrimrecRel.comp Primrec.nat_lt h_t h_xlen
+  have h_arg : Primrec (fun p : (ℕ × ℕ) × List Bool =>
+      (((p.1.1, p.1.2), p.2), p.1.2 - p.2.length)) :=
+    Primrec.pair (Primrec.pair (Primrec.pair h_e h_t) h_x) h_sub
+  have h_dpIter : Primrec (fun p : (ℕ × ℕ) × List Bool =>
+      dpIter p.1.1 p.1.2 p.2 (p.1.2 - p.2.length)) := dpIter_primrec.comp h_arg
+  have h_getD : Primrec (fun p : (ℕ × ℕ) × List Bool =>
+      (dpIter p.1.1 p.1.2 p.2 (p.1.2 - p.2.length)).getD 0 0) :=
+    (Primrec.list_getD 0).comp h_dpIter (Primrec.const 0)
+  exact Primrec.ite h_cond (Primrec.const 0) h_getD
+
+set_option maxHeartbeats 4000000 in
+/-- `freezeStageNat` is Primrec. -/
+private theorem freezeStageNat_primrec : Primrec₂ freezeStageNat := by
+  change Primrec (fun p : ℕ × ℕ => freezeStageNat p.1 p.2)
+  unfold freezeStageNat
+  have h_f : Primrec (fun p : ℕ × ℕ => p.2 + 1) := Primrec.succ.comp Primrec.snd
+  have h_g : Primrec (fun _ : ℕ × ℕ => (0 : ℕ)) := Primrec.const 0
+  have h_h : Primrec₂ (fun (p : ℕ × ℕ) (q : ℕ × ℕ) =>
+      max q.2 (if gApproxComp p.1 q.1 [] ≤ 2^q.1 then q.1 else 0)) := by
+    have h_e : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) => r.1.1) := Primrec.fst.comp Primrec.fst
+    have h_s : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) => r.2.1) := Primrec.fst.comp Primrec.snd
+    have h_acc : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) => r.2.2) := Primrec.snd.comp Primrec.snd
+    have h_pow : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) => (2 : ℕ)^r.2.1) :=
+      Primrec.nat_pow.comp (Primrec.const 2) h_s
+    have h_arg_g : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) =>
+        ((r.1.1, r.2.1), ([] : List Bool))) :=
+      Primrec.pair (Primrec.pair h_e h_s) (Primrec.const [])
+    have h_gac : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) => gApproxComp r.1.1 r.2.1 []) :=
+      gApproxComp_primrec.comp h_arg_g
+    have h_cond : PrimrecPred (fun r : (ℕ × ℕ) × (ℕ × ℕ) =>
+        gApproxComp r.1.1 r.2.1 [] ≤ 2^r.2.1) :=
+      PrimrecRel.comp Primrec.nat_le h_gac h_pow
+    have h_branch : Primrec (fun r : (ℕ × ℕ) × (ℕ × ℕ) =>
+        if gApproxComp r.1.1 r.2.1 [] ≤ 2^r.2.1 then r.2.1 else 0) :=
+      Primrec.ite h_cond h_s (Primrec.const 0)
+    exact (Primrec.nat_max.comp h_acc h_branch).to₂
+  exact Primrec.nat_rec' h_f h_g h_h
+
+set_option maxHeartbeats 4000000 in
+/-- The LSC approximant is Primrec. -/
 private theorem enumApprox_primrec :
     Primrec (fun q : (ℕ × List Bool) × ℕ =>
       gApproxComp q.1.1 (freezeStageNat q.1.1 q.2) q.1.2 *
         2^(q.2 - freezeStageNat q.1.1 q.2)) := by
-  sorry
+  have h_e : Primrec (fun q : (ℕ × List Bool) × ℕ => q.1.1) := Primrec.fst.comp Primrec.fst
+  have h_x : Primrec (fun q : (ℕ × List Bool) × ℕ => q.1.2) := Primrec.snd.comp Primrec.fst
+  have h_t : Primrec (fun q : (ℕ × List Bool) × ℕ => q.2) := Primrec.snd
+  have h_fs : Primrec (fun q : (ℕ × List Bool) × ℕ => freezeStageNat q.1.1 q.2) :=
+    freezeStageNat_primrec.comp h_e h_t
+  have h_arg_g : Primrec (fun q : (ℕ × List Bool) × ℕ =>
+      ((q.1.1, freezeStageNat q.1.1 q.2), q.1.2)) :=
+    Primrec.pair (Primrec.pair h_e h_fs) h_x
+  have h_gac : Primrec (fun q : (ℕ × List Bool) × ℕ =>
+      gApproxComp q.1.1 (freezeStageNat q.1.1 q.2) q.1.2) :=
+    gApproxComp_primrec.comp h_arg_g
+  have h_sub : Primrec (fun q : (ℕ × List Bool) × ℕ => q.2 - freezeStageNat q.1.1 q.2) :=
+    Primrec.nat_sub.comp h_t h_fs
+  have h_pow : Primrec (fun q : (ℕ × List Bool) × ℕ =>
+      (2 : ℕ)^(q.2 - freezeStageNat q.1.1 q.2)) :=
+    Primrec.nat_pow.comp (Primrec.const 2) h_sub
+  exact Primrec.nat_mul.comp h_gac h_pow
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   refine ⟨fun q t => gApproxComp q.1 (freezeStageNat q.1 t) q.2 *
