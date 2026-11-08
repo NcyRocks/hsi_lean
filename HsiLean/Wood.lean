@@ -747,6 +747,30 @@ private theorem freezeStageNat_eq (e t : ℕ) : freezeStageNat e t = freezeStage
 
 Each piece Primrec, culminating in the LSC approximant. -/
 
+/-- `strOfIdx` is Primrec. -/
+private theorem strOfIdx_primrec : Primrec₂ strOfIdx := by
+  show Primrec (fun p : ℕ × ℕ => strOfIdx p.1 p.2)
+  unfold strOfIdx
+  have h_range : Primrec (fun p : ℕ × ℕ => List.range p.1) :=
+    Primrec.list_range.comp Primrec.fst
+  have h_inner : Primrec₂ (fun (p : ℕ × ℕ) (k : ℕ) =>
+      decide ((p.2 / 2^(p.1 - 1 - k)) % 2 = 1)) := by
+    have h_d : Primrec (fun q : (ℕ × ℕ) × ℕ => q.1.1) := Primrec.fst.comp Primrec.fst
+    have h_i : Primrec (fun q : (ℕ × ℕ) × ℕ => q.1.2) := Primrec.snd.comp Primrec.fst
+    have h_k : Primrec (fun q : (ℕ × ℕ) × ℕ => q.2) := Primrec.snd
+    have h_sub1 : Primrec (fun q : (ℕ × ℕ) × ℕ => q.1.1 - 1) :=
+      Primrec.nat_sub.comp h_d (Primrec.const 1)
+    have h_sub2 : Primrec (fun q : (ℕ × ℕ) × ℕ => q.1.1 - 1 - q.2) :=
+      Primrec.nat_sub.comp h_sub1 h_k
+    have h_pow : Primrec (fun q : (ℕ × ℕ) × ℕ => (2 : ℕ)^(q.1.1 - 1 - q.2)) :=
+      Primrec.nat_pow.comp (Primrec.const 2) h_sub2
+    have h_div : Primrec (fun q : (ℕ × ℕ) × ℕ => q.1.2 / 2^(q.1.1 - 1 - q.2)) :=
+      Primrec.nat_div.comp h_i h_pow
+    have h_mod : Primrec (fun q : (ℕ × ℕ) × ℕ => (q.1.2 / 2^(q.1.1 - 1 - q.2)) % 2) :=
+      Primrec.nat_mod.comp h_div (Primrec.const 2)
+    exact (PrimrecRel.comp Primrec.eq h_mod (Primrec.const 1)).decide
+  exact Primrec.list_map h_range h_inner
+
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
 
