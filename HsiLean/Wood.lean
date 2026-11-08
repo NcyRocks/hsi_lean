@@ -550,24 +550,48 @@ The recursion is bottom-up on `t - x.length`; we materialise this as a DP table
 iterated via `Nat.rec`, with the state at step `n` being a `List ℕ` of all
 `gApprox e t y` values for `y = x ++ b` with `|b| = t - x.length - n`. -/
 
-/-- Length-`d` binary string with MSB-first index `i` (bits of `i`, padded to `d`). -/
-private def strOfIdx : ℕ → ℕ → List Bool
-  | 0, _ => []
-  | d + 1, i => strOfIdx d (i / 2) ++ [decide (i % 2 = 1)]
+/-- Length-`d` binary string with MSB-first index `i` (bits of `i`, padded to `d`).
+Closed form via `List.range` for direct `Primrec`. -/
+private def strOfIdx (d i : ℕ) : List Bool :=
+  (List.range d).map (fun k => decide ((i / 2^(d - 1 - k)) % 2 = 1))
 
-private theorem strOfIdx_length : ∀ d i, (strOfIdx d i).length = d
-  | 0, _ => rfl
-  | d+1, i => by simp [strOfIdx, strOfIdx_length d (i / 2)]
+private theorem strOfIdx_length (d i : ℕ) : (strOfIdx d i).length = d := by
+  simp [strOfIdx]
+
+/-- Recursive characterisation of `strOfIdx`: `strOfIdx (d+1) i
+    = strOfIdx d (i/2) ++ [decide (i % 2 = 1)]`. -/
+private theorem strOfIdx_succ (d i : ℕ) :
+    strOfIdx (d+1) i = strOfIdx d (i / 2) ++ [decide (i % 2 = 1)] := by
+  unfold strOfIdx
+  rw [List.range_succ, List.map_append, List.map_singleton]
+  -- LHS: (List.range (d+1)).map (fun k => decide ((i / 2^(d-k)) % 2 = 1))
+  --    = (List.range d).map ... ++ [decide ((i / 2^(d-d)) % 2 = 1)]
+  --    = (List.range d).map ... ++ [decide ((i / 2^0) % 2 = 1)]
+  --    = (List.range d).map ... ++ [decide (i % 2 = 1)]
+  -- RHS: (List.range d).map (fun k => decide ((i/2 / 2^(d-1-k)) % 2 = 1)) ++ [decide (i%2=1)]
+  -- Need: inside the first map, the two functions agree.
+  congr 1
+  · apply List.map_congr_left
+    intro k hk
+    have hk_lt : k < d := List.mem_range.mp hk
+    congr 2
+    -- Goal: i / 2^(d + 1 - 1 - k) = i / 2 / 2^(d - 1 - k)
+    rw [Nat.div_div_eq_div_mul]
+    have hexp : (d + 1 - 1 - k) = (d - 1 - k) + 1 := by
+      have : d ≥ 1 := Nat.one_le_iff_ne_zero.mpr (by rintro rfl; omega)
+      omega
+    rw [hexp, pow_succ, Nat.mul_comm]
+  · simp
 
 private theorem strOfIdx_append_false (d i : ℕ) :
     strOfIdx d i ++ [false] = strOfIdx (d + 1) (2 * i) := by
-  show strOfIdx d i ++ [false] = strOfIdx d ((2 * i) / 2) ++ [decide ((2 * i) % 2 = 1)]
+  rw [strOfIdx_succ]
   rw [show (2 * i) / 2 = i by omega, show (2 * i) % 2 = 0 by omega]
   rfl
 
 private theorem strOfIdx_append_true (d i : ℕ) :
     strOfIdx d i ++ [true] = strOfIdx (d + 1) (2 * i + 1) := by
-  show strOfIdx d i ++ [true] = strOfIdx d ((2 * i + 1) / 2) ++ [decide ((2 * i + 1) % 2 = 1)]
+  rw [strOfIdx_succ]
   rw [show (2 * i + 1) / 2 = i by omega, show (2 * i + 1) % 2 = 1 by omega]
   rfl
 
@@ -719,13 +743,9 @@ private theorem freezeStageNat_eq (e t : ℕ) : freezeStageNat e t = freezeStage
     rw [hbranch s]
   rw [hstep]
 
-/-! ### Uniform enumerability (final step, still outstanding)
+/-! ### Primrec chain
 
-With `gApproxComp = gApprox` and `freezeStageNat = freezeStage`, the LSC
-approximant we want is
-`φ ((e,x), t) := gApproxComp e (freezeStageNat e t) x * 2^(t - freezeStageNat e t)`.
-Monotonicity and sup follow from `GApprox_mono` and `enumFun = ⨆ GApprox`; the
-remaining work is to prove this function `Computable` in `((e, x), t)`. -/
+Each piece Primrec, culminating in the LSC approximant. -/
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
