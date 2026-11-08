@@ -236,13 +236,43 @@ theorem gApprox_mono_step (e t : ℕ) (x : List Bool) :
         simp
   exact aux _ x rfl
 
+/-- `dyadic` is monotone in the numerator. -/
+theorem dyadic_mono_num {a b n : ℕ} (h : a ≤ b) : dyadic a n ≤ dyadic b n := by
+  unfold dyadic
+  have : (a : ℝ≥0∞) ≤ (b : ℝ≥0∞) := by exact_mod_cast h
+  gcongr
+
 /-- (d) Minimality: if a semimeasure `μ` dominates the level-`t` `fApprox`, it
 dominates the level-`t` `gApprox`. Here "dominates at level `t`" is
 `dyadic (· ) t ≤ μ x`. Used in completeness. -/
 theorem gApprox_le_of_fApprox_le {e t : ℕ} (μ : Semimeasure)
     (hf : ∀ x, dyadic (fApprox e t x) t ≤ μ x) (x : List Bool) :
     dyadic (gApprox e t x) t ≤ μ x := by
-  sorry
+  have aux : ∀ d, ∀ x : List Bool, t - x.length = d → dyadic (gApprox e t x) t ≤ μ x := by
+    intro d
+    induction d using Nat.strong_induction_on with
+    | _ d ih =>
+      intro x hd
+      rcases lt_trichotomy x.length t with h | h | h
+      · -- |x| < t: unfold, induct
+        rw [gApprox_eq_of_length_lt h]
+        have hd0 : t - (x ++ [false]).length < d := by simp [List.length_append]; omega
+        have hd1 : t - (x ++ [true]).length < d := by simp [List.length_append]; omega
+        have ih0 : dyadic (gApprox e t (x ++ [false])) t ≤ μ (x ++ [false]) := ih _ hd0 _ rfl
+        have ih1 : dyadic (gApprox e t (x ++ [true])) t ≤ μ (x ++ [true]) := ih _ hd1 _ rfl
+        rcases le_total (fApprox e t x)
+            (gApprox e t (x ++ [false]) + gApprox e t (x ++ [true])) with hle | hle
+        · rw [max_eq_right hle, dyadic_add]
+          exact (add_le_add ih0 ih1).trans (μ.extend_le x)
+        · rw [max_eq_left hle]
+          exact hf x
+      · -- |x| = t: g = f, immediate.
+        rw [gApprox_eq_fApprox_of_length_eq h]
+        exact hf x
+      · -- |x| > t: g = 0.
+        rw [gApprox_eq_zero_of_length_gt h]
+        simp [dyadic]
+  exact aux _ x rfl
 
 /-! ### Properties of `GApprox` and `enumFun` -/
 
