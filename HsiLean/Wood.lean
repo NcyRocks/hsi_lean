@@ -545,7 +545,19 @@ theorem enum_complete : ∀ μ : Semimeasure, μ.Enumerable → ∃ e, enum e = 
 
 /-! ### Uniform enumerability
 
-Hardest step — the bottom-up recursion has to be shown computable. Isolated. -/
+The task brief flags this as "likely the hardest engineering step": the
+bottom-up `gApprox` recursion needs a computable implementation, but a
+`Nat.rec`-based state is a function `List Bool → ℕ`, which is not
+`Primcodable`. The recommended workaround is to carry a finite
+memoisation table (a `List ℕ` of values for all strings of the current
+length), but assembling it as a `Primrec` / `Computable` is nontrivial.
+
+The LSC approximant we would use here is
+`φ ((e, x), t) := gApprox e (freezeStage e t) x * 2^(t - freezeStage e t)`,
+giving `dyadic (φ ((e,x), t)) t = GApprox e t x`, whose sup is `enum e x`.
+Monotonicity in `t` and the sup identity are immediate from the already-proven
+`GApprox_mono` and `enumFun = ⨆ GApprox`. The missing piece is purely
+Computability. -/
 
 theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
   sorry
