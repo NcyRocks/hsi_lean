@@ -1,8 +1,6 @@
 import HsiLean.Basic
 import Mathlib.Computability.PartrecCode
 
-set_option maxHeartbeats 1200000
-
 /-!
 # A `WoodInterface` built from `Nat.Partrec.Code`
 
@@ -898,9 +896,11 @@ private theorem freezeStage_le_self (e t : ℕ) : freezeStage e t ≤ t := by
   · exact Nat.lt_succ_iff.mp (Finset.mem_range.mp hn)
   · exact Nat.zero_le _
 
-/-- `dpStep`, `dpIter`, `gApproxComp`, `freezeStageNat` are Primrec, and so is
-the LSC approximant. Each is a mechanical composition over the primitives
-proved above; see the proof sketch at `enum_uniformlyEnumerable`. -/
+/-- The LSC approximant we would use, factored into separate Primrec
+proofs for each DP layer. The `fApprox_primrec`-dependent compositions
+at 5-6 levels of `Prod` nesting hit a persistent whnf timeout in the
+elaborator even at 1.2M heartbeats; see RUN-REPORT.md for the attempted
+chain. -/
 private theorem enumApprox_primrec :
     Primrec (fun q : (ℕ × List Bool) × ℕ =>
       gApproxComp q.1.1 (freezeStageNat q.1.1 q.2) q.1.2 *
