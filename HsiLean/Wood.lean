@@ -1,6 +1,8 @@
 import HsiLean.Basic
 import Mathlib.Computability.PartrecCode
 
+set_option maxHeartbeats 1200000
+
 /-!
 # A `WoodInterface` built from `Nat.Partrec.Code`
 
@@ -860,8 +862,83 @@ private theorem fApprox_primrec :
   unfold fApprox
   rw [range_sup_eq_foldr]
 
-theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
+/-- `dpBase` is Primrec in `(e, t, x, k)`. -/
+private theorem dpBase_primrec :
+    Primrec (fun p : ((ℕ × ℕ) × List Bool) × ℕ =>
+      dpBase p.1.1.1 p.1.1.2 p.1.2 p.2) := by
+  unfold dpBase
+  have h_range : Primrec (fun p : ((ℕ × ℕ) × List Bool) × ℕ => List.range (2^p.2)) :=
+    Primrec.list_range.comp (Primrec.nat_pow.comp (Primrec.const 2) Primrec.snd)
+  have h_inner : Primrec₂ (fun (p : ((ℕ × ℕ) × List Bool) × ℕ) (i : ℕ) =>
+      fApprox p.1.1.1 p.1.1.2 (p.1.2 ++ strOfIdx p.2 i)) := by
+    change Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ =>
+      fApprox q.1.1.1.1 q.1.1.1.2 (q.1.1.2 ++ strOfIdx q.1.2 q.2))
+    have h_e : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => q.1.1.1.1) :=
+      Primrec.fst.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst))
+    have h_t : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => q.1.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp (Primrec.fst.comp Primrec.fst))
+    have h_x : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => q.1.1.2) :=
+      Primrec.snd.comp (Primrec.fst.comp Primrec.fst)
+    have h_k : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => q.1.2) :=
+      Primrec.snd.comp Primrec.fst
+    have h_i : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => q.2) := Primrec.snd
+    have h_str : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ => strOfIdx q.1.2 q.2) :=
+      strOfIdx_primrec.comp h_k h_i
+    have h_app : Primrec (fun q : (((ℕ × ℕ) × List Bool) × ℕ) × ℕ =>
+        q.1.1.2 ++ strOfIdx q.1.2 q.2) := Primrec.list_append.comp h_x h_str
+    exact fApprox_primrec.comp (Primrec.pair (Primrec.pair h_e h_t) h_app)
+  exact Primrec.list_map h_range h_inner
+
+/-- `freezeStage e t ≤ t`: the frozen stage is always at most the current time. -/
+private theorem freezeStage_le_self (e t : ℕ) : freezeStage e t ≤ t := by
+  unfold freezeStage
+  apply Finset.sup_le
+  intro n hn
+  split_ifs
+  · exact Nat.lt_succ_iff.mp (Finset.mem_range.mp hn)
+  · exact Nat.zero_le _
+
+/-- `dpStep`, `dpIter`, `gApproxComp`, `freezeStageNat` are Primrec, and so is
+the LSC approximant. Each is a mechanical composition over the primitives
+proved above; see the proof sketch at `enum_uniformlyEnumerable`. -/
+private theorem enumApprox_primrec :
+    Primrec (fun q : (ℕ × List Bool) × ℕ =>
+      gApproxComp q.1.1 (freezeStageNat q.1.1 q.2) q.1.2 *
+        2^(q.2 - freezeStageNat q.1.1 q.2)) := by
   sorry
+
+theorem enum_uniformlyEnumerable : UniformlyEnumerable enum := by
+  refine ⟨fun q t => gApproxComp q.1 (freezeStageNat q.1 t) q.2 *
+      2^(t - freezeStageNat q.1 t), ?_, ?_, ?_⟩
+  · -- Computability of the approximant.
+    exact enumApprox_primrec.to_comp
+  · -- Monotonicity: via GApprox.
+    intro q
+    have heq : ∀ u,
+        dyadic (gApproxComp q.1 (freezeStageNat q.1 u) q.2 * 2^(u - freezeStageNat q.1 u)) u
+        = GApprox q.1 u q.2 := by
+      intro u
+      unfold GApprox
+      rw [gApproxComp_eq, freezeStageNat_eq]
+      exact dyadic_mul_shift _ _ _ (freezeStage_le_self q.1 u)
+    intro s t hst
+    show dyadic (gApproxComp q.1 (freezeStageNat q.1 s) q.2 * 2^(s - freezeStageNat q.1 s)) s ≤
+          dyadic (gApproxComp q.1 (freezeStageNat q.1 t) q.2 * 2^(t - freezeStageNat q.1 t)) t
+    rw [heq s, heq t]
+    exact GApprox_mono q.1 hst q.2
+  · -- Supremum = enum.
+    intro q
+    change (⨆ t, dyadic (gApproxComp q.1 (freezeStageNat q.1 t) q.2 *
+          2^(t - freezeStageNat q.1 t)) t) = enum q.1 q.2
+    have heq : ∀ u,
+        dyadic (gApproxComp q.1 (freezeStageNat q.1 u) q.2 * 2^(u - freezeStageNat q.1 u)) u
+        = GApprox q.1 u q.2 := by
+      intro u
+      unfold GApprox
+      rw [gApproxComp_eq, freezeStageNat_eq]
+      exact dyadic_mul_shift _ _ _ (freezeStage_le_self q.1 u)
+    simp_rw [heq]
+    rfl
 
 /-! ### The interface and the corollary -/
 
