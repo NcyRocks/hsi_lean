@@ -135,18 +135,106 @@ theorem gApprox_eq_of_length_lt {e t : ℕ} {x : List Bool} (h : x.length < t) :
 /-- (a) child-sum ≤ parent, in dyadic (level-`t`) form. -/
 theorem gApprox_extend_le (e t : ℕ) (x : List Bool) :
     gApprox e t (x ++ [false]) + gApprox e t (x ++ [true]) ≤ gApprox e t x := by
-  sorry
+  have hlen0 : (x ++ [false]).length = x.length + 1 := by simp
+  have hlen1 : (x ++ [true]).length = x.length + 1 := by simp
+  rcases lt_trichotomy x.length t with h | h | h
+  · -- |x| < t: by the unfolding
+    rw [gApprox_eq_of_length_lt h]
+    exact le_max_right _ _
+  · -- |x| = t: children at length t+1 are 0
+    rw [gApprox_eq_zero_of_length_gt (by omega : t < (x ++ [false]).length),
+        gApprox_eq_zero_of_length_gt (by omega : t < (x ++ [true]).length)]
+    exact Nat.zero_le _
+  · -- |x| > t: everything 0
+    rw [gApprox_eq_zero_of_length_gt (by omega : t < (x ++ [false]).length),
+        gApprox_eq_zero_of_length_gt (by omega : t < (x ++ [true]).length)]
+    exact Nat.zero_le _
 
-/-- (b) `fApprox` is dominated by `gApprox` pointwise at the same stage. -/
-theorem fApprox_le_gApprox (e t : ℕ) (x : List Bool) :
+/-- (b) `fApprox` is dominated by `gApprox` pointwise at the same stage, provided
+`|x| ≤ t`. -/
+theorem fApprox_le_gApprox (e t : ℕ) (x : List Bool) (h : x.length ≤ t) :
     fApprox e t x ≤ gApprox e t x := by
-  sorry
+  rcases h.lt_or_eq with h | h
+  · rw [gApprox_eq_of_length_lt h]; exact le_max_left _ _
+  · rw [gApprox_eq_fApprox_of_length_eq h]
+
+/-- A single `candidate` at level `t+1` dominates twice its level-`t` value when `n ≤ t`. -/
+theorem candidate_double_le (e t n : ℕ) (x : List Bool) (hn : n ≤ t) :
+    2 * candidate e t n x ≤ candidate e (t + 1) n x := by
+  unfold candidate
+  cases hev : Nat.Partrec.Code.evaln t (codeOf e) (Encodable.encode (x, n)) with
+  | none => simp
+  | some k =>
+    have hmem : k ∈ Nat.Partrec.Code.evaln t (codeOf e) (Encodable.encode (x, n)) := hev
+    have hnext : k ∈ Nat.Partrec.Code.evaln (t + 1) (codeOf e) (Encodable.encode (x, n)) :=
+      Nat.Partrec.Code.evaln_mono (Nat.le_succ t) hmem
+    have hev' : Nat.Partrec.Code.evaln (t + 1) (codeOf e) (Encodable.encode (x, n)) = some k :=
+      hnext
+    rw [hev']
+    -- 2 * (k * 2^(t-n)) ≤ k * 2^(t+1-n)
+    have hsub : t + 1 - n = (t - n) + 1 := by omega
+    rw [hsub, pow_succ]
+    ring_nf
+    exact le_rfl
+
+/-- Level-up for `fApprox`: doubling at level `t` gives a bound at level `t+1`. -/
+theorem fApprox_double_le (e t : ℕ) (x : List Bool) :
+    2 * fApprox e t x ≤ fApprox e (t + 1) x := by
+  obtain ⟨m, hm_mem, hm_eq⟩ :=
+    Finset.exists_mem_eq_sup (Finset.range (t + 1)) Finset.nonempty_range_add_one
+      (fun n => candidate e t n x)
+  have hfApprox_eq : fApprox e t x = candidate e t m x := hm_eq
+  have hm_le : m ≤ t := Nat.lt_succ_iff.mp (Finset.mem_range.mp hm_mem)
+  rw [hfApprox_eq]
+  calc 2 * candidate e t m x
+      ≤ candidate e (t + 1) m x := candidate_double_le e t m x hm_le
+    _ ≤ fApprox e (t + 1) x := by
+        unfold fApprox
+        exact Finset.le_sup (f := fun n => candidate e (t + 1) n x)
+          (Finset.mem_range.mpr (by omega : m < t + 2))
 
 /-- (c) `gApprox` is monotone in `t`, comparing level-`t` vs level-`t+1` dyadic
-readings. The numerator grows by *at least* a factor of 2. -/
+readings. The numerator grows by *at least* a factor of 2.
+
+Induction on `t - x.length`: for `|x| ≥ t`, LHS is `0` or `2 * f` and we unfold
+level `t+1` once; for `|x| < t`, use the recursion. -/
 theorem gApprox_mono_step (e t : ℕ) (x : List Bool) :
     2 * gApprox e t x ≤ gApprox e (t + 1) x := by
-  sorry
+  have aux : ∀ d, ∀ x : List Bool, t - x.length = d →
+      2 * gApprox e t x ≤ gApprox e (t + 1) x := by
+    intro d
+    induction d using Nat.strong_induction_on with
+    | _ d ih =>
+      intro x hd
+      rcases lt_trichotomy x.length t with h | h | h
+      · -- |x| < t: g e t x = max (f, children sum); g e (t+1) x = max (f', children' sum).
+        rw [gApprox_eq_of_length_lt h,
+            gApprox_eq_of_length_lt (by omega : x.length < t + 1)]
+        have hd0 : t - (x ++ [false]).length < d := by
+          simp [List.length_append]; omega
+        have hd1 : t - (x ++ [true]).length < d := by
+          simp [List.length_append]; omega
+        have ih0 : 2 * gApprox e t (x ++ [false]) ≤ gApprox e (t + 1) (x ++ [false]) :=
+          ih _ hd0 _ rfl
+        have ih1 : 2 * gApprox e t (x ++ [true]) ≤ gApprox e (t + 1) (x ++ [true]) :=
+          ih _ hd1 _ rfl
+        have hmax : 2 * max (fApprox e t x)
+              (gApprox e t (x ++ [false]) + gApprox e t (x ++ [true]))
+            = max (2 * fApprox e t x)
+                  (2 * gApprox e t (x ++ [false]) + 2 * gApprox e t (x ++ [true])) := by
+          rw [mul_max, Nat.mul_add]
+        rw [hmax]
+        exact max_le_max (fApprox_double_le e t x)
+          (Nat.add_le_add ih0 ih1)
+      · -- |x| = t: g e t x = f e t x. g e (t+1) x: |x| < t+1, so recurse.
+        rw [gApprox_eq_fApprox_of_length_eq h,
+            gApprox_eq_of_length_lt (by omega : x.length < t + 1)]
+        calc 2 * fApprox e t x ≤ fApprox e (t + 1) x := fApprox_double_le e t x
+          _ ≤ _ := le_max_left _ _
+      · -- |x| > t: g e t x = 0; LHS = 0.
+        rw [gApprox_eq_zero_of_length_gt h]
+        simp
+  exact aux _ x rfl
 
 /-- (d) Minimality: if a semimeasure `μ` dominates the level-`t` `fApprox`, it
 dominates the level-`t` `gApprox`. Here "dominates at level `t`" is
