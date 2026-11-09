@@ -38,7 +38,18 @@ variable [∀ i, IsProbabilityMeasure (Q i)]
 /-- Posteriors sum to one wherever the mixture is positive. -/
 theorem tsum_post (hw : ∑' i, w i = 1) (x : List Bool) (hx : mix Q w x ≠ 0) :
     ∑' i, post Q w i x = 1 := by
-  sorry
+  have h_mix_le_one : mix Q w x ≤ 1 := by
+    unfold mix
+    calc ∑' i, w i * Q i (cyl x)
+        ≤ ∑' i, w i * 1 :=
+          ENNReal.tsum_le_tsum fun i => by gcongr; exact prob_le_one
+      _ = ∑' i, w i := by simp
+      _ = 1 := hw
+  have h_mix_ne_top : mix Q w x ≠ ⊤ := ne_top_of_le_ne_top one_ne_top h_mix_le_one
+  simp only [post, ENNReal.div_eq_inv_mul]
+  rw [ENNReal.tsum_mul_left]
+  change (mix Q w x)⁻¹ * mix Q w x = 1
+  exact ENNReal.inv_mul_cancel hx h_mix_ne_top
 
 /-- **Overtaking is unlikely** (Cohen–Hutter `lem:overtaking`, from Hutter 2009 Lemma 4):
 `P[R(x_{<t}) / P(x_{<t}) ≥ c infinitely often] ≤ 1/c`, written without division. -/
