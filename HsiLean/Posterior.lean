@@ -370,15 +370,89 @@ lemma setIntegral_postR_succ_eq_cyl (hw : ∑' i, w i = 1) (i t : ℕ) (x : List
   · exact ENNReal.mul_ne_top (wi_ne_top w hw i)
       (measure_ne_top (Q i) (cyl (x ++ [true])))
 
-/-- One-step martingale identity on a filt t-measurable set (Dynkin extension of the
-cylinder identity). The key reduction: both ∫_A postR(t+1) ∘ pre(t+1) dμ and
-∫_A postR(t) ∘ pre t dμ equal the "total probability mass under Q_i" of the part of A.
-The Dynkin π-system argument is isolated here. -/
+/-- The π-system of length-`t` cylinders (indexed by `List Bool` of length `t`). -/
+def cyl_pi (t : ℕ) : Set (Set (ℕ → Bool)) := {A | ∃ x : List Bool, x.length = t ∧ A = cyl x}
+
+/-- Length-`t` cylinders form a π-system: they're pairwise disjoint unless equal. -/
+lemma isPiSystem_cyl_pi (t : ℕ) : IsPiSystem (cyl_pi t) := by
+  rintro A ⟨x, hxlen, rfl⟩ B ⟨y, hylen, rfl⟩ hne
+  refine ⟨x, hxlen, ?_⟩
+  obtain ⟨ω, hωA, hωB⟩ := hne
+  simp only [cyl, Set.mem_setOf_eq] at hωA hωB
+  rw [hxlen] at hωA
+  rw [hylen] at hωB
+  have hxy : x = y := hωA ▸ hωB
+  subst hxy
+  exact Set.inter_self _
+
+/-- `filt t = generateFrom (length-t cylinders)`. This gives the π-system representation
+needed for the Dynkin extension. -/
+lemma filt_eq_generateFrom_cyl_pi (t : ℕ) :
+    (filt t : MeasurableSpace (ℕ → Bool)) = MeasurableSpace.generateFrom (cyl_pi t) := by
+  sorry
+
+/-- One-step martingale identity on a filt-`t`-measurable set (Dynkin extension of the
+cylinder identity). Uses `MeasurableSpace.induction_on_inter` with π-system of length-`t`
+cylinders. The identity is preserved under complement (via `setIntegral_compl` and total
+integral equality) and countable disjoint union (via `integral_iUnion`). -/
 lemma setIntegral_postR_succ_eq (hw : ∑' i, w i = 1) (i t : ℕ)
     {A : Set (ℕ → Bool)} (hA : MeasurableSet[filt t] A) :
     ∫ ω in A, postR Q w i (pre ω (t + 1)) ∂(mixMeasure Q w) =
       ∫ ω in A, postR Q w i (pre ω t) ∂(mixMeasure Q w) := by
-  sorry
+  haveI : IsProbabilityMeasure (mixMeasure Q w) := isProbabilityMeasure_mixMeasure Q w hw
+  set f : (ℕ → Bool) → ℝ := fun ω => postR Q w i (pre ω (t + 1))
+  set g : (ℕ → Bool) → ℝ := fun ω => postR Q w i (pre ω t)
+  have hf_int : Integrable f (mixMeasure Q w) := postR_pre_integrable Q w hw i (t+1)
+  have hg_int : Integrable g (mixMeasure Q w) := postR_pre_integrable Q w hw i t
+  -- Total integral equality: both ∫ f = ∫ g. Proved by splitting univ into length-t cyls.
+  have h_total : ∫ ω, f ω ∂(mixMeasure Q w) = ∫ ω, g ω ∂(mixMeasure Q w) := by
+    have h_univ : (Set.univ : Set (ℕ → Bool)) = ⋃ v : Fin t → Bool, cyl (List.ofFn v) := by
+      ext ω
+      refine ⟨fun _ => Set.mem_iUnion.mpr ⟨fun j => ω j.val, ?_⟩, fun _ => trivial⟩
+      show pre ω (List.ofFn (fun j : Fin t => ω j.val)).length =
+        List.ofFn (fun j : Fin t => ω j.val)
+      rw [List.length_ofFn]; rfl
+    have h_disj : Pairwise fun v u : Fin t → Bool =>
+        Disjoint (cyl (List.ofFn v)) (cyl (List.ofFn u)) := by
+      intro v u hvu
+      refine Set.disjoint_left.mpr fun ω hωv hωu => ?_
+      simp only [cyl, Set.mem_setOf_eq, List.length_ofFn] at hωv hωu
+      apply hvu
+      exact List.ofFn_inj.mp (hωv.symm.trans hωu)
+    have hm : ∀ v : Fin t → Bool, MeasurableSet (cyl (List.ofFn v)) :=
+      fun v => cyl_measurable _
+    rw [← setIntegral_univ (μ := mixMeasure Q w) (f := f),
+        ← setIntegral_univ (μ := mixMeasure Q w) (f := g), h_univ,
+        integral_iUnion_fintype hm h_disj (fun _ => hf_int.integrableOn),
+        integral_iUnion_fintype hm h_disj (fun _ => hg_int.integrableOn)]
+    apply Finset.sum_congr rfl
+    intro v _
+    rw [show f = fun ω => postR Q w i (pre ω (t+1)) from rfl,
+        show g = fun ω => postR Q w i (pre ω t) from rfl,
+        setIntegral_postR_succ_eq_cyl Q w hw i t (List.ofFn v) (List.length_ofFn),
+        setIntegral_postR_cyl_of_length_eq Q w hw i t (List.ofFn v) (List.length_ofFn)]
+  -- Translate hA from filt t to generateFrom cyl_pi, then apply induction_on_inter.
+  rw [filt_eq_generateFrom_cyl_pi] at hA
+  induction A, hA using MeasurableSpace.induction_on_inter rfl (isPiSystem_cyl_pi t) with
+  | empty => simp
+  | basic A hA =>
+    obtain ⟨x, hxlen, rfl⟩ := hA
+    rw [setIntegral_postR_succ_eq_cyl Q w hw i t x hxlen,
+      setIntegral_postR_cyl_of_length_eq Q w hw i t x hxlen]
+  | compl A hAm ih =>
+    have hAm' : MeasurableSet A := by
+      have hle : filt t ≤ (inferInstance : MeasurableSpace (ℕ → Bool)) := filt.le t
+      rw [filt_eq_generateFrom_cyl_pi] at hle
+      exact hle _ hAm
+    rw [setIntegral_compl hAm' hf_int, setIntegral_compl hAm' hg_int, ih, h_total]
+  | iUnion s hd hm ih =>
+    have hm' : ∀ n, MeasurableSet (s n) := fun n => by
+      have hle : filt t ≤ (inferInstance : MeasurableSpace (ℕ → Bool)) := filt.le t
+      rw [filt_eq_generateFrom_cyl_pi] at hle
+      exact hle _ (hm n)
+    rw [integral_iUnion hm' hd hf_int.integrableOn,
+        integral_iUnion hm' hd hg_int.integrableOn]
+    exact tsum_congr ih
 
 /-- **One-step martingale property** (Cohen–Hutter, lem:poststable, lines 903–913):
 `E[postR(t+1) ∘ pre(t+1) | filt t] =ᵐ postR(t) ∘ pre t`. Uses `ae_eq_condExp_of_forall_setIntegral_eq`
