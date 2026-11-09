@@ -227,6 +227,68 @@ theorem tsum_post (hw : ∑' i, w i = 1) (x : List Bool) (hx : mix Q w x ≠ 0) 
   change (mix Q w x)⁻¹ * mix Q w x = 1
   exact ENNReal.inv_mul_cancel hx h_mix_ne_top
 
+/-! ## Martingale convergence setup
+
+Core fact: the posterior sequence is a bounded martingale under the Bayes mixture.
+We work via its real-valued image `postR`; the ENNReal version converges by composition
+with `ENNReal.ofReal`. -/
+
+/-- Real-valued posterior. -/
+noncomputable def postR (i : ℕ) (x : List Bool) : ℝ := (post Q w i x).toReal
+
+/-- `postR` sits in `[0, 1]`. -/
+lemma postR_nonneg (i : ℕ) (x : List Bool) : 0 ≤ postR Q w i x :=
+  ENNReal.toReal_nonneg
+
+lemma postR_le_one (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
+    postR Q w i x ≤ 1 := by
+  have : post Q w i x ≤ 1 := post_le_one Q w hw i x
+  unfold postR
+  exact ENNReal.toReal_le_of_le_ofReal zero_le_one (by rwa [ENNReal.ofReal_one])
+
+/-- **Martingale property** (Cohen–Hutter, lem:poststable):
+`(fun ω t => postR Q w i (pre ω t))` is a martingale under `mixMeasure Q w`. -/
+theorem postR_martingale (hw : ∑' i, w i = 1) (i : ℕ) :
+    MeasureTheory.Martingale (fun t ω => postR Q w i (pre ω t)) filt (mixMeasure Q w) := by
+  sorry
+
+/-- `ENNReal.ofReal` lifts real convergence to `ℝ≥0∞` convergence. -/
+lemma tendsto_ofReal_of_tendsto {f : ℕ → ℝ} {L : ℝ}
+    (h : Tendsto f atTop (𝓝 L)) :
+    Tendsto (fun n => ENNReal.ofReal (f n)) atTop (𝓝 (ENNReal.ofReal L)) :=
+  (ENNReal.continuous_ofReal.tendsto L).comp h
+
+/-- Mix-a.s. convergence of the ENNReal posterior. -/
+theorem post_converges_mix (hw : ∑' i, w i = 1) (i : ℕ) :
+    ∀ᵐ ω ∂(mixMeasure Q w), ∃ L, Tendsto (fun t => post Q w i (pre ω t)) atTop (𝓝 L) := by
+  haveI : IsProbabilityMeasure (mixMeasure Q w) := isProbabilityMeasure_mixMeasure Q w hw
+  -- Real-valued convergence from the martingale theorem.
+  have hmart : MeasureTheory.Martingale (fun t ω => postR Q w i (pre ω t)) filt (mixMeasure Q w) :=
+    postR_martingale Q w hw i
+  -- L¹ bound: `postR ≤ 1` on probability space.
+  have hbdd : ∀ t, eLpNorm (fun ω => postR Q w i (pre ω t)) 1 (mixMeasure Q w) ≤ 1 := by
+    intro t
+    refine (eLpNorm_le_of_ae_bound (C := 1) ?_).trans ?_
+    · refine Filter.Eventually.of_forall fun ω => ?_
+      rw [Real.norm_eq_abs, abs_of_nonneg (postR_nonneg Q w i _)]
+      exact postR_le_one Q w hw i _
+    · simp
+  -- Apply Mathlib's a.e. convergence theorem on the submartingale.
+  have hconv := hmart.submartingale.ae_tendsto_limitProcess hbdd
+  -- Lift from `ℝ` convergence to `ℝ≥0∞` convergence via `ENNReal.ofReal`.
+  filter_upwards [hconv] with ω hω
+  refine ⟨ENNReal.ofReal (filt.limitProcess (fun t ω => postR Q w i (pre ω t))
+            (mixMeasure Q w) ω), ?_⟩
+  -- `post = ENNReal.ofReal postR` since `post ≤ 1 ≠ ⊤`.
+  have hpost_eq : ∀ t, post Q w i (pre ω t) =
+      ENNReal.ofReal (postR Q w i (pre ω t)) := by
+    intro t
+    unfold postR
+    rw [ENNReal.ofReal_toReal]
+    exact ne_top_of_le_ne_top one_ne_top (post_le_one Q w hw i _)
+  simp_rw [hpost_eq]
+  exact tendsto_ofReal_of_tendsto hω
+
 /-- **Overtaking is unlikely** (Cohen–Hutter `lem:overtaking`, from Hutter 2009 Lemma 4):
 `P[R(x_{<t}) / P(x_{<t}) ≥ c infinitely often] ≤ 1/c`, written without division. -/
 theorem overtaking (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure P]
@@ -238,7 +300,10 @@ theorem overtaking (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure P]
 Thm 4): each posterior weight converges with probability one under the true measure. -/
 theorem post_converges (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0) (i : ℕ) :
     ∀ᵐ ω ∂(Q i₀), ∃ L, Tendsto (fun t => post Q w i (pre ω t)) atTop (𝓝 L) := by
-  sorry
+  have hwi_ne_top : w i₀ ≠ ⊤ := by
+    have : w i₀ ≤ 1 := hw ▸ ENNReal.le_tsum i₀
+    exact ne_top_of_le_ne_top one_ne_top this
+  exact absolutelyContinuous_mixMeasure Q w i₀ hi₀ hwi_ne_top (post_converges_mix Q w hw i)
 
 /-- **Sum of limits** (Cohen–Hutter `lem:sumoflimits`): with probability one under the true
 measure, every posterior converges and the limits still sum to one — no posterior mass
