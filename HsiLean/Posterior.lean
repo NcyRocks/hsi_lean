@@ -254,12 +254,32 @@ lemma postR_le_one (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
   exact ENNReal.toReal_le_of_le_ofReal zero_le_one (by rwa [ENNReal.ofReal_one])
 
 /-- The posterior sequence is strongly adapted to the natural filtration: at time `t`, the
-function `postR _ ∘ pre _ t` depends only on the first `t` coordinates. Proving this cleanly
-requires that `pre _ t : (ℕ → Bool) → List Bool` is `filt t`-measurable (into the discrete
-σ-algebra on `List Bool`); then composition with `postR Q w i : List Bool → ℝ` is automatic. -/
+function `postR _ ∘ pre _ t` depends only on the first `t` coordinates. Route: factor through
+`Fin t → Bool` (finite ⇒ trivial σ-algebra); each coordinate projection `fun ω => ω i.val`
+is `filt t`-measurable for `i < t`. -/
 theorem postR_stronglyAdapted (i : ℕ) :
     StronglyAdapted filt (fun t (ω : ℕ → Bool) => postR Q w i (pre ω t)) := by
-  sorry
+  intro t
+  change StronglyMeasurable[filt t] (fun ω : ℕ → Bool => postR Q w i (pre ω t))
+  -- `fun ω => (fun j : Fin t => ω j.val) : (ℕ → Bool) → (Fin t → Bool)` is
+  -- `filt t`-measurable since each coordinate projection is.
+  have h1 : @Measurable _ _ (filt t) _ (fun ω : ℕ → Bool => fun j : Fin t => ω j.val) := by
+    letI : MeasurableSpace (ℕ → Bool) := filt t
+    refine measurable_pi_lambda _ ?_
+    intro j
+    -- show `fun ω => ω j.val` is measurable in the `filt t` σ-algebra
+    show @Measurable (ℕ → Bool) Bool (filt t) _ _
+    exact measurable_coord_of_lt j.isLt
+  -- `Fin t → Bool` is finite, so any function out of it is measurable.
+  have h2 : Measurable (fun v : Fin t → Bool => postR Q w i (List.ofFn v)) :=
+    measurable_of_countable _
+  have heq : (fun ω : ℕ → Bool => postR Q w i (pre ω t)) =
+      (fun v : Fin t → Bool => postR Q w i (List.ofFn v)) ∘
+        (fun ω : ℕ → Bool => fun j : Fin t => ω j.val) := by
+    funext ω
+    rfl
+  rw [heq]
+  exact (h2.comp h1).stronglyMeasurable
 
 /-- The martingale identity on cylinders, which is the paper's calculation
 (Cohen–Hutter lem:poststable, lines 903–913). On any cyl x of length t (an atom of filt t),
