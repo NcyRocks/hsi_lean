@@ -142,6 +142,75 @@ lemma cyl_measurable_filt (x : List Bool) {t : ℕ} (htx : x.length ≤ t) :
   exact (measurable_coord_of_lt (lt_of_lt_of_le i.isLt htx))
     (MeasurableSet.singleton _)
 
+/-! ## Cylinder decomposition and bounds -/
+
+/-- `pre ω (t+1) = pre ω t ++ [ω t]`. -/
+lemma pre_succ (ω : ℕ → Bool) (t : ℕ) : pre ω (t + 1) = pre ω t ++ [ω t] := by
+  unfold pre
+  rw [List.ofFn_succ', List.concat_eq_append]
+  congr
+
+/-- A cylinder at length `n` splits into its two length-`n+1` extensions. -/
+lemma cyl_eq_union (x : List Bool) :
+    cyl x = cyl (x ++ [false]) ∪ cyl (x ++ [true]) := by
+  ext ω
+  constructor
+  · intro h
+    simp only [cyl, Set.mem_setOf_eq] at h
+    rcases hω : ω x.length with _ | _
+    · left
+      simp only [cyl, Set.mem_setOf_eq, List.length_append, List.length_singleton]
+      rw [pre_succ, h, hω]
+    · right
+      simp only [cyl, Set.mem_setOf_eq, List.length_append, List.length_singleton]
+      rw [pre_succ, h, hω]
+  · rintro (h | h) <;>
+    · simp only [cyl, Set.mem_setOf_eq, List.length_append, List.length_singleton] at h
+      simp only [cyl, Set.mem_setOf_eq]
+      rw [pre_succ] at h
+      have hlen : (pre ω x.length).length = x.length := by simp [pre]
+      exact (List.append_inj h hlen).1
+
+/-- The two length-`n+1` extensions of a cylinder are disjoint. -/
+lemma cyl_disjoint (x : List Bool) :
+    Disjoint (cyl (x ++ [false])) (cyl (x ++ [true])) := by
+  refine Set.disjoint_left.mpr ?_
+  intro ω hF hT
+  simp only [cyl, Set.mem_setOf_eq, List.length_append, List.length_singleton] at hF hT
+  have : x ++ [false] = x ++ [true] := hF.symm.trans hT
+  simpa using this
+
+/-- A measure on `ℕ → Bool` decomposes additively on cylinders. -/
+lemma measure_cyl_split (μ : Measure (ℕ → Bool)) (x : List Bool) :
+    μ (cyl x) = μ (cyl (x ++ [false])) + μ (cyl (x ++ [true])) := by
+  rw [cyl_eq_union]
+  exact measure_union (cyl_disjoint x) (cyl_measurable _)
+
+/-- The Bayes mixture decomposes on cylinders. -/
+lemma mix_split (x : List Bool) :
+    mix Q w x = mix Q w (x ++ [false]) + mix Q w (x ++ [true]) := by
+  simp only [mix]
+  rw [← ENNReal.tsum_add]
+  refine tsum_congr fun i => ?_
+  rw [← mul_add, ← measure_cyl_split]
+
+/-- Mixture is bounded above by `1` when prior weights sum to one. -/
+lemma mix_le_one (hw : ∑' i, w i = 1) (x : List Bool) : mix Q w x ≤ 1 := by
+  unfold mix
+  calc ∑' i, w i * Q i (cyl x)
+      ≤ ∑' i, w i * 1 := ENNReal.tsum_le_tsum fun i => by gcongr; exact prob_le_one
+    _ = ∑' i, w i := by simp
+    _ = 1 := hw
+
+/-- `post ≤ 1`. -/
+lemma post_le_one (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
+    post Q w i x ≤ 1 := by
+  have h_num_le : w i * Q i (cyl x) ≤ mix Q w x := ENNReal.le_tsum i
+  unfold post
+  refine ENNReal.div_le_of_le_mul ?_
+  rw [one_mul]
+  exact h_num_le
+
 /-- Posteriors sum to one wherever the mixture is positive. -/
 theorem tsum_post (hw : ∑' i, w i = 1) (x : List Bool) (hx : mix Q w x ≠ 0) :
     ∑' i, post Q w i x = 1 := by
