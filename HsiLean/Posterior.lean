@@ -319,6 +319,18 @@ theorem post_converges_all (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ �
   rw [ae_all_iff]
   exact fun i => post_converges Q w hw i₀ hi₀ i
 
+/-- Any convergent-pointwise sum of limits is bounded by 1 — the Fatou direction. -/
+lemma tsum_limit_le_one {L : ℕ → ℝ≥0∞} {f : ℕ → ℕ → ℝ≥0∞}
+    (h_conv : ∀ i, Tendsto (fun t => f t i) atTop (𝓝 (L i)))
+    (h_bdd : ∀ t, ∑' i, f t i ≤ 1) : ∑' i, L i ≤ 1 := by
+  rw [ENNReal.tsum_eq_iSup_sum]
+  refine iSup_le fun F => ?_
+  have hfinite_lim : Tendsto (fun t => ∑ i ∈ F, f t i) atTop (𝓝 (∑ i ∈ F, L i)) :=
+    tendsto_finsetSum F fun i _ => h_conv i
+  have hfinite_le : ∀ t, ∑ i ∈ F, f t i ≤ 1 := fun t =>
+    (ENNReal.sum_le_tsum F).trans (h_bdd t)
+  exact le_of_tendsto' hfinite_lim hfinite_le
+
 /-- **Sum of limits** (Cohen–Hutter `lem:sumoflimits`): with probability one under the true
 measure, every posterior converges and the limits still sum to one — no posterior mass
 escapes to infinity. -/
@@ -328,9 +340,12 @@ theorem sum_of_limits (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0)
   filter_upwards [post_converges_all Q w hw i₀ hi₀] with ω h
   classical
   refine ⟨fun i => (h i).choose, fun i => (h i).choose_spec, ?_⟩
-  -- Paper's argument:
-  -- ≤ 1 by Fatou + `tsum_post ≤ 1` at every t.
-  -- ≥ 1 by `overtaking` applied to a finite-subclass argument.
+  -- ≤ 1 direction: Fatou on the uniform bound `tsum_post ≤ 1`.
+  have h_le : ∑' i, (h i).choose ≤ 1 :=
+    tsum_limit_le_one (fun i => (h i).choose_spec)
+      (fun t => tsum_post_le_one Q w hw _)
+  refine le_antisymm h_le ?_
+  -- ≥ 1 direction: the paper's finite-subclass argument using `overtaking`.
   sorry
 
 end HsiLean.Posterior
