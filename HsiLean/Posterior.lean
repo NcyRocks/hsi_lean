@@ -33,7 +33,58 @@ noncomputable def mix (x : List Bool) : ℝ≥0∞ := ∑' i, w i * Q i (cyl x)
 /-- The posterior weight of `Q i` after seeing `x`: `w(Q_i | x) = w_i Q_i(x) / ξ(x)`. -/
 noncomputable def post (i : ℕ) (x : List Bool) : ℝ≥0∞ := w i * Q i (cyl x) / mix Q w x
 
+/-! ## The Bayes-mixture measure -/
+
+/-- The Bayes mixture as a measure on `ℕ → Bool`: `μ_ξ := Σ_i w_i • Q_i`. -/
+noncomputable def mixMeasure : Measure (ℕ → Bool) := Measure.sum (fun i => w i • Q i)
+
 variable [∀ i, IsProbabilityMeasure (Q i)]
+
+/-- Cylinders are determined by finitely many coordinates, so they are measurable. -/
+lemma cyl_measurable (x : List Bool) : MeasurableSet (cyl x) := by
+  have h : cyl x = ⋂ i : Fin x.length, {ω : ℕ → Bool | ω i.val = x[i.val]} := by
+    ext ω
+    simp only [cyl, pre, Set.mem_setOf_eq, Set.mem_iInter]
+    refine ⟨fun h i => ?_, fun h => ?_⟩
+    · have hget : (List.ofFn (fun j : Fin x.length => ω j.val))[i.val]? = x[i.val]? := by
+        rw [h]
+      simpa [List.getElem?_ofFn, i.isLt] using hget
+    · apply List.ext_getElem
+      · simp
+      · intro j h1 h2
+        simp only [List.getElem_ofFn]
+        exact h ⟨j, by simpa using h2⟩
+  rw [h]
+  exact MeasurableSet.iInter fun i =>
+    (measurable_pi_apply i.val) (MeasurableSet.singleton _)
+
+/-- The mixture measure evaluated on a cylinder matches `mix`. -/
+lemma mixMeasure_cyl (x : List Bool) : mixMeasure Q w (cyl x) = mix Q w x := by
+  rw [mixMeasure, Measure.sum_apply _ (cyl_measurable x)]
+  rfl
+
+/-- The mixture measure is a probability measure when the prior weights sum to one. -/
+lemma isProbabilityMeasure_mixMeasure (hw : ∑' i, w i = 1) :
+    IsProbabilityMeasure (mixMeasure Q w) where
+  measure_univ := by
+    rw [mixMeasure, Measure.sum_apply _ MeasurableSet.univ]
+    simp only [Measure.smul_apply, measure_univ, smul_eq_mul, mul_one]
+    exact hw
+
+/-- Each weighted summand is dominated by the mixture measure. -/
+lemma smul_le_mixMeasure (i : ℕ) : w i • Q i ≤ mixMeasure Q w := by
+  exact Measure.le_sum _ i
+
+/-- When `w i ≠ 0` and `w i ≠ ∞`, `Q i` is absolutely continuous w.r.t. the mixture measure. -/
+lemma absolutelyContinuous_mixMeasure (i : ℕ) (hwi : w i ≠ 0) (hwi' : w i ≠ ⊤) :
+    Q i ≪ mixMeasure Q w := by
+  intro s hs
+  have hle : (w i • Q i) s ≤ mixMeasure Q w s := smul_le_mixMeasure Q w i s
+  rw [Measure.smul_apply, smul_eq_mul] at hle
+  rw [hs, le_zero_iff, mul_eq_zero] at hle
+  rcases hle with h | h
+  · exact absurd h hwi
+  · exact h
 
 /-- Posteriors sum to one wherever the mixture is positive. -/
 theorem tsum_post (hw : ∑' i, w i = 1) (x : List Bool) (hx : mix Q w x ≠ 0) :
