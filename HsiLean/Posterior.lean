@@ -214,18 +214,25 @@ lemma post_le_one (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
 /-- Posteriors sum to one wherever the mixture is positive. -/
 theorem tsum_post (hw : ∑' i, w i = 1) (x : List Bool) (hx : mix Q w x ≠ 0) :
     ∑' i, post Q w i x = 1 := by
-  have h_mix_le_one : mix Q w x ≤ 1 := by
-    unfold mix
-    calc ∑' i, w i * Q i (cyl x)
-        ≤ ∑' i, w i * 1 :=
-          ENNReal.tsum_le_tsum fun i => by gcongr; exact prob_le_one
-      _ = ∑' i, w i := by simp
-      _ = 1 := hw
+  have h_mix_le_one : mix Q w x ≤ 1 := mix_le_one Q w hw x
   have h_mix_ne_top : mix Q w x ≠ ⊤ := ne_top_of_le_ne_top one_ne_top h_mix_le_one
   simp only [post, ENNReal.div_eq_inv_mul]
   rw [ENNReal.tsum_mul_left]
   change (mix Q w x)⁻¹ * mix Q w x = 1
   exact ENNReal.inv_mul_cancel hx h_mix_ne_top
+
+/-- Posteriors always sum to at most one. -/
+theorem tsum_post_le_one (hw : ∑' i, w i = 1) (x : List Bool) :
+    ∑' i, post Q w i x ≤ 1 := by
+  by_cases hmix : mix Q w x = 0
+  · have hzero : ∀ i, w i * Q i (cyl x) = 0 := ENNReal.tsum_eq_zero.mp hmix
+    have hpost_zero : ∀ i, post Q w i x = 0 := by
+      intro i
+      unfold post
+      rw [hzero i]
+      simp
+    simp [hpost_zero]
+  · exact le_of_eq (tsum_post Q w hw x hmix)
 
 /-! ## Martingale convergence setup
 
@@ -305,12 +312,25 @@ theorem post_converges (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0
     exact ne_top_of_le_ne_top one_ne_top this
   exact absolutelyContinuous_mixMeasure Q w i₀ hi₀ hwi_ne_top (post_converges_mix Q w hw i)
 
+/-- Combining `post_converges` over the countable class: every posterior converges a.s. -/
+theorem post_converges_all (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0) :
+    ∀ᵐ ω ∂(Q i₀),
+      ∀ i, ∃ L, Tendsto (fun t => post Q w i (pre ω t)) atTop (𝓝 L) := by
+  rw [ae_all_iff]
+  exact fun i => post_converges Q w hw i₀ hi₀ i
+
 /-- **Sum of limits** (Cohen–Hutter `lem:sumoflimits`): with probability one under the true
 measure, every posterior converges and the limits still sum to one — no posterior mass
 escapes to infinity. -/
 theorem sum_of_limits (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0) :
     ∀ᵐ ω ∂(Q i₀), ∃ L : ℕ → ℝ≥0∞,
       (∀ i, Tendsto (fun t => post Q w i (pre ω t)) atTop (𝓝 (L i))) ∧ ∑' i, L i = 1 := by
+  filter_upwards [post_converges_all Q w hw i₀ hi₀] with ω h
+  classical
+  refine ⟨fun i => (h i).choose, fun i => (h i).choose_spec, ?_⟩
+  -- Paper's argument:
+  -- ≤ 1 by Fatou + `tsum_post ≤ 1` at every t.
+  -- ≥ 1 by `overtaking` applied to a finite-subclass argument.
   sorry
 
 end HsiLean.Posterior
