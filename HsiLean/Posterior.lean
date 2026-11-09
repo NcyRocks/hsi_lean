@@ -253,11 +253,28 @@ lemma postR_le_one (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
   unfold postR
   exact ENNReal.toReal_le_of_le_ofReal zero_le_one (by rwa [ENNReal.ofReal_one])
 
-/-- **Martingale property** (Cohen–Hutter, lem:poststable):
-`(fun ω t => postR Q w i (pre ω t))` is a martingale under `mixMeasure Q w`. -/
-theorem postR_martingale (hw : ∑' i, w i = 1) (i : ℕ) :
-    MeasureTheory.Martingale (fun t ω => postR Q w i (pre ω t)) filt (mixMeasure Q w) := by
+/-- The posterior sequence is strongly adapted to the natural filtration: at time `t`, the
+function `postR _ ∘ pre _ t` depends only on the first `t` coordinates. Proving this cleanly
+requires that `pre _ t : (ℕ → Bool) → List Bool` is `filt t`-measurable (into the discrete
+σ-algebra on `List Bool`); then composition with `postR Q w i : List Bool → ℝ` is automatic. -/
+theorem postR_stronglyAdapted (i : ℕ) :
+    StronglyAdapted filt (fun t (ω : ℕ → Bool) => postR Q w i (pre ω t)) := by
   sorry
+
+/-- The martingale identity on cylinders, which is the paper's calculation
+(Cohen–Hutter lem:poststable, lines 903–913). On any cyl x of length t (an atom of filt t),
+∫ post(t+1) dμ = w_i · Q_i(cyl x) = ∫ post(t) dμ, using `mix_split` and the definition of post. -/
+theorem postR_condExp (hw : ∑' i, w i = 1) (i : ℕ) :
+    ∀ s t, s ≤ t → (mixMeasure Q w)[fun ω => postR Q w i (pre ω t) | filt s] =ᵐ[mixMeasure Q w]
+      fun ω => postR Q w i (pre ω s) := by
+  sorry
+
+/-- **Martingale property** (Cohen–Hutter, lem:poststable):
+`(fun ω t => postR Q w i (pre ω t))` is a martingale under `mixMeasure Q w`.
+Combines strong adaptedness and the cylinder-level condExp identity. -/
+theorem postR_martingale (hw : ∑' i, w i = 1) (i : ℕ) :
+    MeasureTheory.Martingale (fun t ω => postR Q w i (pre ω t)) filt (mixMeasure Q w) :=
+  ⟨postR_stronglyAdapted Q w i, postR_condExp Q w hw i⟩
 
 /-- `ENNReal.ofReal` lifts real convergence to `ℝ≥0∞` convergence. -/
 lemma tendsto_ofReal_of_tendsto {f : ℕ → ℝ} {L : ℝ}
