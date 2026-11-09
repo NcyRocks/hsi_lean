@@ -281,13 +281,148 @@ theorem postR_stronglyAdapted (i : ℕ) :
   rw [heq]
   exact (h2.comp h1).stronglyMeasurable
 
+/-- `w i ≠ ⊤` whenever the weights sum to one. -/
+lemma wi_ne_top (hw : ∑' i, w i = 1) (i : ℕ) : w i ≠ ⊤ := by
+  have : w i ≤ 1 := hw ▸ ENNReal.le_tsum i
+  exact ne_top_of_le_ne_top one_ne_top this
+
+/-- `post Q w i x` is finite (never `⊤`) when the weights sum to one. -/
+lemma post_ne_top (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) : post Q w i x ≠ ⊤ :=
+  ne_top_of_le_ne_top one_ne_top (post_le_one Q w hw i x)
+
+/-- `mix Q w x` is finite (never `⊤`) when the weights sum to one. -/
+lemma mix_ne_top (hw : ∑' i, w i = 1) (x : List Bool) : mix Q w x ≠ ⊤ :=
+  ne_top_of_le_ne_top one_ne_top (mix_le_one Q w hw x)
+
+/-- Key algebraic identity: `postR i x · mix(x).toReal = (w i · Q i (cyl x)).toReal`.
+Handles both cases `mix(x) = 0` (both sides zero) and `mix(x) > 0` (div-mul-cancel). -/
+lemma postR_mul_mix_toReal (hw : ∑' i, w i = 1) (i : ℕ) (x : List Bool) :
+    postR Q w i x * (mix Q w x).toReal = (w i * Q i (cyl x)).toReal := by
+  have hmix_ne_top : mix Q w x ≠ ⊤ := mix_ne_top Q w hw x
+  by_cases hmix : mix Q w x = 0
+  · -- Both sides zero: mix = 0 ⇒ w i * Q i (cyl x) ≤ 0, so RHS = 0; LHS has factor 0.
+    have hwQ_le : w i * Q i (cyl x) ≤ mix Q w x := ENNReal.le_tsum i
+    rw [hmix, le_zero_iff] at hwQ_le
+    rw [hwQ_le]
+    simp [hmix]
+  · -- mix ≠ 0, ≠ ∞: use div_mul_cancel.
+    have hpost_mul : post Q w i x * mix Q w x = w i * Q i (cyl x) := by
+      unfold post
+      exact ENNReal.div_mul_cancel hmix hmix_ne_top
+    -- Now toReal both sides.
+    have : (post Q w i x * mix Q w x).toReal = (w i * Q i (cyl x)).toReal := by
+      rw [hpost_mul]
+    rw [ENNReal.toReal_mul] at this
+    exact this
+
+/-- `postR Q w i ∘ pre · t` is integrable w.r.t. the Bayes mixture. -/
+lemma postR_pre_integrable (hw : ∑' i, w i = 1) (i t : ℕ) :
+    Integrable (fun ω => postR Q w i (pre ω t)) (mixMeasure Q w) := by
+  haveI : IsProbabilityMeasure (mixMeasure Q w) := isProbabilityMeasure_mixMeasure Q w hw
+  have hmeas : AEStronglyMeasurable (fun ω => postR Q w i (pre ω t)) (mixMeasure Q w) :=
+    ((postR_stronglyAdapted Q w i t).mono (filt.le t)).aestronglyMeasurable
+  refine Integrable.of_mem_Icc 0 1 hmeas.aemeasurable ?_
+  exact Filter.Eventually.of_forall fun ω =>
+    ⟨postR_nonneg Q w i _, postR_le_one Q w hw i _⟩
+
+/-- Integral of `postR(t) ∘ pre t` over a cylinder `cyl x` with `x.length = t`.
+Since `postR(t) ∘ pre t` is constant `postR(t)(x)` on `cyl x`, this is just the
+constant times the measure of the cylinder. -/
+lemma setIntegral_postR_cyl_of_length_eq (hw : ∑' i, w i = 1) (i t : ℕ) (x : List Bool)
+    (hxt : x.length = t) :
+    ∫ ω in cyl x, postR Q w i (pre ω t) ∂(mixMeasure Q w) =
+      postR Q w i x * (mix Q w x).toReal := by
+  have h_eqOn : Set.EqOn (fun ω => postR Q w i (pre ω t))
+      (fun _ => postR Q w i x) (cyl x) := by
+    intro ω hω
+    dsimp only
+    simp only [cyl, Set.mem_setOf_eq] at hω
+    rw [← hxt, hω]
+  rw [setIntegral_congr_fun (cyl_measurable x) h_eqOn, setIntegral_const,
+      Measure.real, mixMeasure_cyl, smul_eq_mul, mul_comm]
+
+/-- The one-step martingale identity on a cylinder `cyl x` with `x.length = t`:
+the integral over the children splits into the two sub-cylinders, and the algebraic
+identity `postR i y · mix(y).toReal = (w i · Q i (cyl y)).toReal` identifies both
+sides with `(w i · Q i (cyl x)).toReal`. -/
+lemma setIntegral_postR_succ_eq_cyl (hw : ∑' i, w i = 1) (i t : ℕ) (x : List Bool)
+    (hxt : x.length = t) :
+    ∫ ω in cyl x, postR Q w i (pre ω (t + 1)) ∂(mixMeasure Q w) =
+      postR Q w i x * (mix Q w x).toReal := by
+  have hxF : (x ++ [false]).length = t + 1 := by simp [hxt]
+  have hxT : (x ++ [true]).length = t + 1 := by simp [hxt]
+  -- Split cyl x into its two children
+  rw [cyl_eq_union x]
+  rw [setIntegral_union (cyl_disjoint x) (cyl_measurable _)
+    ((postR_pre_integrable Q w hw i (t+1)).integrableOn)
+    ((postR_pre_integrable Q w hw i (t+1)).integrableOn)]
+  -- compute each sub-integral via the length-eq lemma
+  rw [setIntegral_postR_cyl_of_length_eq Q w hw i (t+1) (x ++ [false]) hxF]
+  rw [setIntegral_postR_cyl_of_length_eq Q w hw i (t+1) (x ++ [true]) hxT]
+  -- postR y · mix(y).toReal = (w i · Q i (cyl y)).toReal for y ∈ {x++[false], x++[true]}
+  rw [postR_mul_mix_toReal Q w hw i (x ++ [false])]
+  rw [postR_mul_mix_toReal Q w hw i (x ++ [true])]
+  rw [postR_mul_mix_toReal Q w hw i x]
+  -- The sum of ENNReal factors equals the ENNReal at the parent (via Q_i cyl split)
+  rw [← ENNReal.toReal_add, ← mul_add, ← measure_cyl_split (Q i) x]
+  · exact ENNReal.mul_ne_top (wi_ne_top w hw i)
+      (measure_ne_top (Q i) (cyl (x ++ [false])))
+  · exact ENNReal.mul_ne_top (wi_ne_top w hw i)
+      (measure_ne_top (Q i) (cyl (x ++ [true])))
+
+/-- One-step martingale identity on a filt t-measurable set (Dynkin extension of the
+cylinder identity). The key reduction: both ∫_A postR(t+1) ∘ pre(t+1) dμ and
+∫_A postR(t) ∘ pre t dμ equal the "total probability mass under Q_i" of the part of A.
+The Dynkin π-system argument is isolated here. -/
+lemma setIntegral_postR_succ_eq (hw : ∑' i, w i = 1) (i t : ℕ)
+    {A : Set (ℕ → Bool)} (hA : MeasurableSet[filt t] A) :
+    ∫ ω in A, postR Q w i (pre ω (t + 1)) ∂(mixMeasure Q w) =
+      ∫ ω in A, postR Q w i (pre ω t) ∂(mixMeasure Q w) := by
+  sorry
+
+/-- **One-step martingale property** (Cohen–Hutter, lem:poststable, lines 903–913):
+`E[postR(t+1) ∘ pre(t+1) | filt t] =ᵐ postR(t) ∘ pre t`. Uses `ae_eq_condExp_of_forall_setIntegral_eq`
+with the setIntegral identity reduced via the Dynkin argument above. -/
+theorem postR_condExp_succ (hw : ∑' i, w i = 1) (i t : ℕ) :
+    (mixMeasure Q w)[fun ω => postR Q w i (pre ω (t + 1)) | filt t] =ᵐ[mixMeasure Q w]
+      fun ω => postR Q w i (pre ω t) := by
+  haveI : IsProbabilityMeasure (mixMeasure Q w) := isProbabilityMeasure_mixMeasure Q w hw
+  haveI : SigmaFinite ((mixMeasure Q w).trim (filt.le t)) := inferInstance
+  set f : (ℕ → Bool) → ℝ := fun ω => postR Q w i (pre ω (t + 1)) with hf_def
+  set g : (ℕ → Bool) → ℝ := fun ω => postR Q w i (pre ω t) with hg_def
+  have hf_int : Integrable f (mixMeasure Q w) := postR_pre_integrable Q w hw i (t+1)
+  have hg_int : Integrable g (mixMeasure Q w) := postR_pre_integrable Q w hw i t
+  have hg_sm : AEStronglyMeasurable[filt t] g (mixMeasure Q w) :=
+    (postR_stronglyAdapted Q w i t).aestronglyMeasurable
+  have h_eq : ∀ A : Set (ℕ → Bool), MeasurableSet[filt t] A →
+      (mixMeasure Q w) A < ∞ → ∫ x in A, g x ∂(mixMeasure Q w) =
+        ∫ x in A, f x ∂(mixMeasure Q w) :=
+    fun A hA _ => (setIntegral_postR_succ_eq Q w hw i t hA).symm
+  have h := ae_eq_condExp_of_forall_setIntegral_eq (filt.le t) hf_int
+    (fun A _ _ => hg_int.integrableOn) h_eq hg_sm
+  exact h.symm
+
 /-- The martingale identity on cylinders, which is the paper's calculation
 (Cohen–Hutter lem:poststable, lines 903–913). On any cyl x of length t (an atom of filt t),
-∫ post(t+1) dμ = w_i · Q_i(cyl x) = ∫ post(t) dμ, using `mix_split` and the definition of post. -/
+∫ post(t+1) dμ = w_i · Q_i(cyl x) = ∫ post(t) dμ, using `mix_split` and the definition of post.
+The general case `s ≤ t` reduces to the one-step via tower. -/
 theorem postR_condExp (hw : ∑' i, w i = 1) (i : ℕ) :
     ∀ s t, s ≤ t → (mixMeasure Q w)[fun ω => postR Q w i (pre ω t) | filt s] =ᵐ[mixMeasure Q w]
       fun ω => postR Q w i (pre ω s) := by
-  sorry
+  haveI : IsProbabilityMeasure (mixMeasure Q w) := isProbabilityMeasure_mixMeasure Q w hw
+  intro s t hst
+  induction t, hst using Nat.le_induction with
+  | base =>
+    -- s = t: condExp of a filt s-measurable function is itself.
+    have h := condExp_of_stronglyMeasurable (filt.le s) (postR_stronglyAdapted Q w i s)
+      (postR_pre_integrable Q w hw i s)
+    exact h.eventuallyEq
+  | succ t hst ih =>
+    have h_tower := condExp_condExp_of_le (μ := mixMeasure Q w)
+      (f := fun ω => postR Q w i (pre ω (t+1))) (filt.mono hst) (filt.le t)
+    have h_onestep := postR_condExp_succ Q w hw i t
+    have h_push := condExp_congr_ae (m := filt s) (μ := mixMeasure Q w) h_onestep
+    exact h_tower.symm.trans (h_push.trans ih)
 
 /-- **Martingale property** (Cohen–Hutter, lem:poststable):
 `(fun ω t => postR Q w i (pre ω t))` is a martingale under `mixMeasure Q w`.
