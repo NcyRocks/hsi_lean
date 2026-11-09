@@ -386,10 +386,41 @@ lemma isPiSystem_cyl_pi (t : ℕ) : IsPiSystem (cyl_pi t) := by
   exact Set.inter_self _
 
 /-- `filt t = generateFrom (length-t cylinders)`. This gives the π-system representation
-needed for the Dynkin extension. -/
+needed for the Dynkin extension. The `≥` direction is immediate (every cyl of length t is
+`filt t`-measurable). The `≤` direction expresses each generator `{ω | ω i = b}` of
+`preSigma t` (for `i < t`, `b : Bool`) as a finite union of length-t cyls. -/
 lemma filt_eq_generateFrom_cyl_pi (t : ℕ) :
     (filt t : MeasurableSpace (ℕ → Bool)) = MeasurableSpace.generateFrom (cyl_pi t) := by
-  sorry
+  refine le_antisymm ?_ ?_
+  · -- (≤): preSigma t ≤ generateFrom (cyl_pi t)
+    show preSigma t ≤ _
+    refine iSup_le fun i => ?_
+    -- comap (fun ω => ω i.val) inferInstance ≤ generateFrom (cyl_pi t)
+    rintro _ ⟨S, _, rfl⟩
+    -- Goal: `(fun ω => ω i.val) ⁻¹' S` is generateFrom (cyl_pi t)-measurable.
+    -- Rewrite it as a union over length-t strings v of `cyl (List.ofFn v)`, keeping those with
+    -- `v i ∈ S`.
+    have h_eq : (fun ω : ℕ → Bool => ω i.val) ⁻¹' S =
+        ⋃ v : {v : Fin t → Bool // v i ∈ S}, cyl (List.ofFn v.val) := by
+      ext ω
+      simp only [Set.mem_preimage, Set.mem_iUnion]
+      refine ⟨fun hS => ⟨⟨fun j : Fin t => ω j.val, hS⟩, ?_⟩,
+        fun ⟨⟨v, hv⟩, hω⟩ => ?_⟩
+      · show pre ω (List.ofFn (fun j : Fin t => ω j.val)).length =
+          List.ofFn (fun j : Fin t => ω j.val)
+        rw [List.length_ofFn]; rfl
+      · simp only [cyl, Set.mem_setOf_eq, List.length_ofFn] at hω
+        have hfv : (fun j : Fin t => ω j.val) = v := List.ofFn_inj.mp hω
+        have hωi : ω i.val = v i := congrFun hfv i
+        rw [hωi]; exact hv
+    rw [h_eq]
+    refine MeasurableSet.iUnion fun v => ?_
+    exact MeasurableSpace.measurableSet_generateFrom
+      ⟨List.ofFn v.val, List.length_ofFn, rfl⟩
+  · -- (≥): generateFrom (cyl_pi t) ≤ filt t
+    refine MeasurableSpace.generateFrom_le fun A ⟨x, hxlen, hA⟩ => ?_
+    subst hA
+    exact cyl_measurable_filt x (le_of_eq hxlen)
 
 /-- One-step martingale identity on a filt-`t`-measurable set (Dynkin extension of the
 cylinder identity). Uses `MeasurableSpace.induction_on_inter` with π-system of length-`t`
