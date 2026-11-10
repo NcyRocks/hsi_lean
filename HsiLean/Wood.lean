@@ -25,6 +25,11 @@ The construction proceeds in three layers:
 Then `enum e := ⨆ t, GApprox e t` as an ENNReal-valued semimeasure.
 
 See the task brief 2026-11-08 for the written proof.
+
+Paper section: `paper/ALT format.tex`, `thm:enums-of-ums=ums` (the spine theorem). The paper
+takes an effective enumeration of all enumerable semimeasures for granted (Wood et al.,
+Li–Vitányi); this file builds it (`woodInterface`), so that
+`mixtureClass_eq_universalMixtures'` holds with no interface hypothesis.
 -/
 
 open ENNReal
