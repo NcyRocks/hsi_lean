@@ -1,0 +1,121 @@
+% ⚠️ UNAPPROVED: every statement in this file was drafted by Claude (Fable 5.2) on 2026-11-10 and has NOT been reviewed by Nathan.
+%
+% AI-derived (Claude, 2026-11-10), unverified by Nathan.
+% Draft replacement for the passage around eq:hsi-average-error-bound and eq:hsi-convergence
+% in "ALT format.tex" (Section "Optimality properties"). Uses the paper's macros (\Eta, \coloneq).
+% Lean counterpart: HsiLean/Rate.lean (all statements there are UNAPPROVED too). The Lean name
+% of each step is given in a comment. The Lean proofs check with no sorry and only the standard
+% axioms (propext, Classical.choice, Quot.sound).
+%
+% WHAT CHANGES RELATIVE TO THE PAPER (please check each):
+%  (a) Two hypotheses are made explicit (Assumption below). Without (ii) the arrow in
+%      eq:hsi-convergence is FALSE as stated: see the counterexample remark at the end.
+%  (b) eq:hsi-error-bound is stated with \le, not <. (Strictness needs a second model with
+%      positive weight and positive probability on X; it plays no role in the rate.)
+%  (c) The expectation in eq:hsi-convergence is taken over the whole dataset X as well as the
+%      new sequence x_nu, not conditionally on a fixed X.
+%  (d) The hyperprior weights may sum to less than 1; the chain rule then has the extra
+%      constant +log_2 sum_j Eta(U_j) <= 0, which only helps.
+
+\paragraph{Setting.}
+Let $A\subseteq\mathbb{B}^*$ be the set of sequences that may appear in a dataset, and let the ordered dataset $X=(x_1,x_2,\dots)$ be sampled independently from $\mu$, with $x_{<\nu}\coloneq(x_1,\dots,x_{\nu-1})$.
+
+\begin{assumption}
+\label{ass:hsi-rate}
+(i) $\mu$ is a probability distribution on $A$, that is, $\sum_{x\in A}P_{U_\mu}(x)=1$, and $\Eta(U_\mu)>0$.
+(ii) $\sum_{x\in A}P_{U_j}(x)\le 1$ for every $j$.
+\end{assumption}
+Condition (ii) holds for every semimeasure whenever $A$ is prefix-free, for example when all sequences in the dataset have the same length; it can fail if $A$ contains a sequence together with one of its extensions.
+
+Write the conditioned predictor in normalised form,
+\[
+    P_{\Eta(\cdot\mid X)}(x) \coloneq \frac{P_\Eta(X,x)}{P_\Eta(X)}
+    = \frac{\sum_j \Eta(U_j\mid X)\,P_{U_j}(x)}{\sum_j \Eta(U_j\mid X)},
+\]
+and its excess error on the $\nu$-th sequence as
+\[
+    e_\nu \coloneq -\log_2\frac{P_{\Eta(\cdot\mid x_{<\nu})}(x_\nu)}{P_{U_\mu}(x_\nu)} .
+\]
+
+\begin{lemma}[Chain rule over sequences]
+\label{lem:hsi-chain-rule}
+% Lean: sum_excess_eq_totalExcess
+For every dataset $X$ with $P_{U_\mu}(X)>0$,
+\begin{equation}
+\label{eq:hsi-chain-rule}
+    \sum_{\nu=1}^{|X|} e_\nu
+    = -\log_2\frac{P_\Eta(X)}{P_{U_\mu}(X)} + \log_2\sum_j\Eta(U_j).
+\end{equation}
+The last term is $0$ if the hyperprior sums to one and is otherwise negative.
+\end{lemma}
+\begin{proof}
+Since $P_{U_\mu}(X)=\prod_\nu P_{U_\mu}(x_\nu)$ and $P_\Eta(X)\ge\Eta(U_\mu)P_{U_\mu}(X)>0$, the product
+\[
+    \prod_{\nu=1}^{|X|}\frac{P_{\Eta(\cdot\mid x_{<\nu})}(x_\nu)}{P_{U_\mu}(x_\nu)}
+    =\frac{1}{P_{U_\mu}(X)}\prod_{\nu=1}^{|X|}\frac{P_\Eta(x_{\le\nu})}{P_\Eta(x_{<\nu})}
+    =\frac{P_\Eta(X)}{P_{U_\mu}(X)\,P_\Eta(\emptyset)}
+\]
+telescopes, with $P_\Eta(\emptyset)=\sum_j\Eta(U_j)$. Take $-\log_2$.
+\end{proof}
+
+\begin{theorem}[Rate of convergence]
+\label{thm:hsi-rate}
+Under Assumption \ref{ass:hsi-rate}:
+\begin{enumerate}
+    \item % Lean: sum_excess_le
+    $\sum_{\nu=1}^{n} e_\nu \le -\log_2\Eta(U_\mu)$ for every $n$, with $\mu$-probability one.
+    \item % Lean: integrable_excessAt, expected_excess_nonneg
+    $E_\mu(e_\nu)$ is finite and $E_\mu(e_\nu)\ge 0$ for every $\nu$.
+    \item % Lean: sum_expected_excess_le, tsum_expected_excess_le
+    $\sum_{\nu=1}^{\infty} E_\mu(e_\nu)\le -\log_2\Eta(U_\mu)$.
+    \item % Lean: expected_excess_rate
+    For every $\varepsilon>0$,
+    \begin{equation}
+    \label{eq:hsi-rate}
+        \bigl|\{\nu : E_\mu(e_\nu)>\varepsilon\}\bigr| \;\le\; \frac{-\log_2\Eta(U_\mu)}{\varepsilon},
+    \end{equation}
+    independently of $|X|$.
+    \item % Lean: tendsto_expected_excess
+    In particular $E_\mu(e_\nu)\to 0$ as $\nu\to\infty$, which is Equation \ref{eq:hsi-convergence}.
+\end{enumerate}
+\end{theorem}
+\begin{proof}
+(1) With probability one every sampled $x_\nu$ has $P_{U_\mu}(x_\nu)>0$, so Lemma \ref{lem:hsi-chain-rule} applies to $x_{\le n}$, and Equation \ref{eq:hsi-error-bound} bounds its right-hand side by $-\log_2\Eta(U_\mu)$.
+
+(2) Fix $x_{<\nu}$ and write $q(x)\coloneq P_{\Eta(\cdot\mid x_{<\nu})}(x)$. By Assumption \ref{ass:hsi-rate}(ii),
+\[
+    \sum_{x\in A}q(x)=\frac{\sum_j\Eta(U_j)P_{U_j}(x_{<\nu})\sum_{x\in A}P_{U_j}(x)}{P_\Eta(x_{<\nu})}\le 1 .
+\]
+Since $x_\nu$ is independent of $x_{<\nu}$ and $-\log_2 y\ge(1-y)/\ln 2$,
+\[
+    E_\mu(e_\nu\mid x_{<\nu})
+    \;\ge\;\frac{1}{\ln 2}\Bigl(1-\sum_{x:\,P_{U_\mu}(x)>0}P_{U_\mu}(x)\,\frac{q(x)}{P_{U_\mu}(x)}\Bigr)
+    \;\ge\;\frac{1}{\ln 2}\Bigl(1-\sum_{x\in A}q(x)\Bigr)\;\ge\;0 .
+\]
+(This is the non-negativity of the KL divergence from $\mu$ to the sub-probability $q$.) Averaging over $x_{<\nu}$ gives $E_\mu(e_\nu)\ge 0$. For finiteness: $e_\nu$ is bounded below by the integrable function $(1-q(x_\nu)/P_{U_\mu}(x_\nu))/\ln 2$, and by (1) it is bounded above by $-\log_2\Eta(U_\mu)-\sum_{k<\nu}e_k$, which is in turn bounded above by an integrable function using the same lower bound for each $e_k$.
+
+(3) Take expectations in (1) and let $n\to\infty$; the terms are non-negative by (2).
+
+(4) If $m$ of the terms exceed $\varepsilon$ then $m\varepsilon\le\sum_\nu E_\mu(e_\nu)\le-\log_2\Eta(U_\mu)$ by (2) and (3).
+
+(5) The terms of a convergent series tend to zero.
+\end{proof}
+
+\begin{remark}[The averaged bound]
+Equation \ref{eq:hsi-average-error-bound} is weaker than Equation \ref{eq:hsi-error-bound}, not stronger: dividing by $|X|$ loses the per-term conclusion. (A sequence equal to $1$ on perfect squares and $0$ elsewhere has averages tending to $0$ but does not itself tend to $0$.) Theorem \ref{thm:hsi-rate} is derived from the total bound, and Equation \ref{eq:hsi-average-error-bound} follows from part (1) and Lemma \ref{lem:hsi-chain-rule} by dividing by $|X|$. I suggest demoting it to a remark.
+\end{remark}
+
+\begin{remark}[Normalisation]
+% NOT formalised in Lean.
+$P_{\Eta(\cdot\mid X)}$ is in general a strict sub-probability on $A$. Renormalising it to sum to one over $A$ only raises each $P_{\Eta(\cdot\mid X)}(x)$ and so lowers each $e_\nu$, while $E_\mu(e_\nu)$ remains a KL divergence and so remains non-negative; parts (2)--(5) therefore also hold for the renormalised predictor.
+\end{remark}
+
+\begin{remark}[Assumption \ref{ass:hsi-rate}(ii) cannot be dropped]
+% NOT formalised in Lean; a two-line computation.
+Let $A=\{0,00\}$, which is not prefix-free, and let $\mu$ sample $0$ and $00$ with probability $\tfrac12$ each, so $P_{U_\mu}(0)=P_{U_\mu}(00)=\tfrac12$. Let $U_1$ compute the measure concentrated on $000\dots$, so $P_{U_1}(0)=P_{U_1}(00)=1$, and let $\Eta(U_\mu),\Eta(U_1)>0$. After $n$ samples $P_{U_\mu}(X)=2^{-n}$ and $P_{U_1}(X)=1$, so
+\[
+    P_{\Eta(\cdot\mid X)}(x)=\frac{\Eta(U_\mu)2^{-(n+1)}+\Eta(U_1)}{\Eta(U_\mu)2^{-n}+\Eta(U_1)}\longrightarrow 1,
+    \qquad e_{n+1}\longrightarrow-\log_2\frac{1}{1/2}=-1 .
+\]
+The excess error converges to $-1$, not $0$: Equation \ref{eq:hsi-error-bound} still holds, but Equation \ref{eq:hsi-convergence} fails, because the ``true'' model is not the best predictor of items of $A$. The paper should therefore say what kind of object a dataset item is (sequences of a fixed length, or any prefix-free set, suffice).
+\end{remark}
