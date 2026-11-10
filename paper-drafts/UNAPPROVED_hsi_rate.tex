@@ -153,3 +153,51 @@ If $\{\nu_j\}$ enumerates all enumerable semimeasures, this holds for every enum
 % ordered i.i.d. sequence (not a set); the weights are over the indices j of the enumeration
 % (if mu appears at several indices, the constant uses the weight of one such index, which is
 % weaker than using their sum); the expectation is over x_{<nu} and x_nu jointly.
+
+% ---------------------------------------------------------------------------------------------
+% Added 2026-11-11, fifth run (Claude, Fable 5.2). UNAPPROVED, unverified by Nathan.
+% Lean counterpart: HsiLean/HsiRateLength.lean (all statements UNAPPROVED; no sorry).
+% This is Nathan's intended reading (2026-11-11), which the paper never states. The first
+% paragraph below is the sentence the paper is missing near its dataset definition
+% ("Consider an ordered dataset X = (x_1, ..., x_|X|) sampled from some semimeasure mu",
+% ALT format.tex ~line 489).
+\paragraph{The length-conditioned reading of a dataset item.}
+Throughout, the probability that a semimeasure $\nu$ assigns to a dataset item is conditioned on the item's length: given that an item has $n$ symbols, its content is $x\in\mathbb{B}^n$ with probability $\nu(x)$. For example, a machine that always outputs $000\dots$ predicts $0$ with certainty given length $1$ and $00$ with certainty given length $2$. Formally, each item is drawn by first drawing a length $n$ from some distribution $\lambda$ on $\mathbb{N}$, which is not modelled and is the same for every machine, and then drawing $x\in\mathbb{B}^n$; machine $U_j$ assigns the item probability $\lambda(|x|)\,P_{U_j}(x)$.
+
+\begin{lemma}[Each length]
+\label{lem:length-sum}
+% Lean: tsum_length_le_one, tsum_lenModel_le_one
+For every semimeasure $\nu$ and every $n$, $\sum_{x\in\mathbb{B}^n}\nu(x)\le 1$. Hence $\sum_{x\in\mathbb{B}^*}\lambda(|x|)\,\nu(x)\le\sum_n\lambda(n)\le 1$: Assumption \ref{ass:hsi-rate}(ii) holds with $A=\mathbb{B}^*$.
+\end{lemma}
+\begin{proof}
+$\mathbb{B}^n$ is prefix-free; apply Lemma \ref{lem:prefix-free-sum} and group the second sum by length.
+\end{proof}
+
+\begin{lemma}[$\lambda$ cancels]
+\label{lem:lambda-cancels}
+% Lean: pred_lenModel, excess_lenModel, excessAt_lenModel_ae_eq
+Let $X=(x_1,\dots,x_m)$ with $\lambda(|x_i|)>0$ for all $i$. Then $P_{U_j}^\lambda(X)\coloneq\prod_i\lambda(|x_i|)P_{U_j}(x_i)=\Lambda(X)\,P_{U_j}(X)$ with $\Lambda(X)\coloneq\prod_i\lambda(|x_i|)$ independent of $j$, so the posterior $\Eta(U_j\mid X)$ is unchanged, the conditioned predictor of the next item is $\lambda(|x|)\,P_{\Eta(\cdot\mid X)}(x)$, and
+\[
+    -\log_2\frac{\lambda(|x|)\,P_{\Eta(\cdot\mid X)}(x)}{\lambda(|x|)\,P_{U_\mu}(x)}
+    = -\log_2\frac{P_{\Eta(\cdot\mid X)}(x)}{P_{U_\mu}(x)} = e_\nu .
+\]
+The excess error is that of predicting content given length; $\lambda$ does not appear in it.
+\end{lemma}
+
+\begin{theorem}[HSI end to end, length-conditioned]
+\label{thm:hsi-end-to-end-length}
+% Lean: hsi_end_to_end_length (general enumeration), hsi_end_to_end_length_enum (the
+% enumeration of all enumerable semimeasures), exists_iid_length_items (non-vacuity).
+Let $\{\nu_j\}$ and $\Eta$ be as in Theorem \ref{thm:hsi-end-to-end}, let $\lambda$ be a probability distribution on $\mathbb{N}$, and let $x_1,x_2,\dots\in\mathbb{B}^*$ be independent, each with $\Pr(x_i=x)=\lambda(|x|)\,\nu_\mu(x)$ for some $\nu_\mu$ in the enumeration. Then $P_\Eta$ is a universal mixture, and the conclusions of Theorem \ref{thm:hsi-rate} hold for $e_\nu$ with constant $-\log_2\Eta(\mu)$: $E(e_\nu)\ge 0$, $\sum_\nu E(e_\nu)\le-\log_2\Eta(\mu)$, at most $-\log_2\Eta(\mu)/\varepsilon$ positions have $E(e_\nu)>\varepsilon$, and $E(e_\nu)\to 0$. There is no restriction on the items: they may have any lengths, and one may be a prefix of another.
+\end{theorem}
+% Note: the sampling hypothesis forces sum_{|x|=n} nu_mu(x) = 1 for every length n with
+% lambda(n) > 0, i.e. the true nu_mu loses no mass up to the lengths that occur.
+
+\begin{remark}[The example $A=\{0,00\}$ under this reading]
+% Lean: rate_counterexample_length (excess exactly 0 at every position).
+In the example of the remark above, sampling $0$ and $00$ with probability $\tfrac12$ each means $\lambda(1)=\lambda(2)=\tfrac12$ with the content certain given the length. The ``true'' model and $U_1$ (concentrated on $000\dots$) then make the same content-given-length predictions, each assigns each item probability $\tfrac12\cdot 1$, and $e_\nu=0$ for every $\nu$. The earlier $-1$ arose from reading $P_{U_1}(0)=P_{U_1}(00)=1$ as probabilities of items without conditioning on length.
+\end{remark}
+
+\begin{remark}[Three readings]
+An item's probability under $\nu$ can be read as (a) $\nu(x)$ given the length $|x|$ (above); (b) the probability that the machine's output is exactly $x$, namely $\nu(x)-\nu(x0)-\nu(x1)$ (Lemma \ref{lm:bijection}); or (c) $\nu(x)$ with items restricted to a prefix-free set (Theorem \ref{thm:hsi-end-to-end}). Each makes Assumption \ref{ass:hsi-rate}(ii) hold; (c) with $A=\mathbb{B}^n$ is (a) with a single length.
+\end{remark}
