@@ -33,6 +33,23 @@ Source: `paper/ALT format.tex`, §"Optimality properties" (`eq:hsi-error-bound`,
 
 The probabilistic statements take an arbitrary probability space `(Ω, ℙ)` carrying an i.i.d.
 sequence `X ν : Ω → α` whose law is `P j₀`.
+
+## Which probability is `P j a`? Three readings (added 2026-11-11)
+
+The paper does not say what probability a model `ν` gives to a dataset *item* `x` (a finite
+string). This file is abstract and does not choose: it only needs `∑' a, P j a ≤ 1`. There are
+three readings under which that holds:
+
+(a) **conditioned on length** (Nathan's intended reading): given that an item has `n` symbols,
+    its content `x` has probability `ν x`; items may have any lengths
+    (`HsiRateLength.lean`, where `P j x = lam |x| * ν j x` and `lam` cancels);
+(b) **the stopping model** (the paper's `lm:bijection`): the probability that a machine's output
+    is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`;
+(c) **prefix-free items**: the probability is `ν x`, with items restricted to a prefix-free set
+    (`HsiRate.lean`).
+
+Taking `P j x = ν x` over a set of items that is not prefix-free, with no conditioning on
+length, is none of these, and the rate then fails (`RateCounterexample.lean`).
 -/
 
 namespace HsiLean.Rate
