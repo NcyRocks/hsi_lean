@@ -122,3 +122,34 @@ Let $A=\{0,00\}$, which is not prefix-free, and let $\mu$ sample $0$ and $00$ wi
 \]
 The excess error converges to $-1$, not $0$: Equation \ref{eq:hsi-error-bound} still holds, but Equation \ref{eq:hsi-convergence} fails, because the ``true'' model is not the best predictor of items of $A$. The paper should therefore say what kind of object a dataset item is (sequences of a fixed length, or any prefix-free set, suffice).
 \end{remark}
+
+% ---------------------------------------------------------------------------------------------
+% Added 2026-11-11 (Claude, Fable 5.2). UNAPPROVED, unverified by Nathan.
+% Lean counterpart: HsiLean/HsiRate.lean (all statements UNAPPROVED; no sorry; axioms
+% propext, Classical.choice, Quot.sound only).
+\paragraph{The end-to-end result.}
+\begin{lemma}[Prefix-free sets]
+\label{lem:prefix-free-sum}
+% Lean: tsum_le_one_of_prefixFree (finite, relative version: sum_le_of_prefixFree)
+Let $A\subseteq\mathbb{B}^*$ be prefix-free, that is, no element of $A$ is a proper prefix of another. Then $\sum_{x\in A}\nu(x)\le\nu(\epsilon)\le 1$ for every semimeasure $\nu$.
+\end{lemma}
+\begin{proof}
+It suffices to treat finite $A$. We show by induction on $n$ that if every element of $A$ extends $y$ by at most $n$ symbols then $\sum_{x\in A}\nu(x)\le\nu(y)$. If $y\in A$ then $A=\{y\}$ since $A$ is prefix-free (this also covers $n=0$). Otherwise every element of $A$ extends $y0$ or $y1$ by at most $n-1$ symbols, so by the induction hypothesis the sum is at most $\nu(y0)+\nu(y1)\le\nu(y)$. Take $y=\epsilon$.
+\end{proof}
+Lemma \ref{lem:prefix-free-sum} gives Assumption \ref{ass:hsi-rate}(ii) for free, so the two halves of the paper combine:
+
+\begin{theorem}[HSI end to end]
+\label{thm:hsi-end-to-end}
+% Lean: hsi_end_to_end (general enumeration nu), hsi_end_to_end_enum (the enumeration of all
+% enumerable semimeasures, with the truth given as a semimeasure rather than an index).
+Let $\{\nu_j\}$ be an effective enumeration of enumerable semimeasures in which every universal mixture appears, and let $\Eta$ be lower-semicomputable with $\Eta(j)>0$ for all $j$ and $\sum_j\Eta(j)\le 1$. Let $A\subseteq\mathbb{B}^*$ be prefix-free, and let $x_1,x_2,\dots$ be sampled independently from some $\nu_\mu$ in the enumeration that is a probability distribution on $A$. Then:
+\begin{enumerate}
+    \item $P_\Eta=\sum_j\Eta(j)\,\nu_j$ is a universal mixture (Theorem \ref{thm:enums-of-ums=ums});
+    \item the conditioned predictor $P_{\Eta(\cdot\mid x_{<\nu})}$ satisfies every part of Theorem \ref{thm:hsi-rate} with constant $-\log_2\Eta(\mu)$; in particular $\sum_{\nu}E_\mu(e_\nu)\le-\log_2\Eta(\mu)$, at most $-\log_2\Eta(\mu)/\varepsilon$ positions have $E_\mu(e_\nu)>\varepsilon$, and $E_\mu(e_\nu)\to 0$.
+\end{enumerate}
+If $\{\nu_j\}$ enumerates all enumerable semimeasures, this holds for every enumerable $\mu$ that is a probability distribution on $A$.
+\end{theorem}
+% Differences from the paper's wording: items come from a prefix-free set A; the dataset is an
+% ordered i.i.d. sequence (not a set); the weights are over the indices j of the enumeration
+% (if mu appears at several indices, the constant uses the weight of one such index, which is
+% weaker than using their sum); the expectation is over x_{<nu} and x_nu jointly.
