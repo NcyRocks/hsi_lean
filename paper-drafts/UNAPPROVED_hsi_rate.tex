@@ -111,7 +111,10 @@ $P_{\Eta(\cdot\mid X)}$ is in general a strict sub-probability on $A$. Renormali
 \end{remark}
 
 \begin{remark}[Assumption \ref{ass:hsi-rate}(ii) cannot be dropped]
-% NOT formalised in Lean; a two-line computation.
+% Lean: HsiLean/RateCounterexample.lean, theorem rate_counterexample (UNAPPROVED), with weights
+% Eta(U_mu) = Eta(U_1) = 1/2. There P_{U_mu} IS the sampling distribution on the items, so the
+% negative excess is not caused by a wrong reference: it is caused by the predictor's
+% probabilities summing to more than one over A (they tend to 2).
 Let $A=\{0,00\}$, which is not prefix-free, and let $\mu$ sample $0$ and $00$ with probability $\tfrac12$ each, so $P_{U_\mu}(0)=P_{U_\mu}(00)=\tfrac12$. Let $U_1$ compute the measure concentrated on $000\dots$, so $P_{U_1}(0)=P_{U_1}(00)=1$, and let $\Eta(U_\mu),\Eta(U_1)>0$. After $n$ samples $P_{U_\mu}(X)=2^{-n}$ and $P_{U_1}(X)=1$, so
 \[
     P_{\Eta(\cdot\mid X)}(x)=\frac{\Eta(U_\mu)2^{-(n+1)}+\Eta(U_1)}{\Eta(U_\mu)2^{-n}+\Eta(U_1)}\longrightarrow 1,
