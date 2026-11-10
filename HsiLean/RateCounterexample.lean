@@ -25,6 +25,21 @@ expected excess log-loss on the `ν`-th item tends to `-1`, not to `0`.
 
 In this example the excess does not depend on the data at all: for a dataset of `n` items it is
 `-1 - log₂ ((2⁻ⁿ⁻¹ + 1) / (2⁻ⁿ + 1))` (`excess_cex`).
+
+## Which reading of an item's probability this file uses (added 2026-11-11)
+
+There are three readings of "the probability a model `ν` gives to the item `x`" under which the
+rate holds: (a) conditioned on the item's length (Nathan's intended reading;
+`HsiRateLength.lean`); (b) the stopping model, the paper's `lm:bijection` (the probability that
+a machine's output is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`); (c) `ν x` with items
+restricted to a prefix-free set (`HsiRate.lean`).
+
+This file uses NONE of them: it takes the item's probability to be `ν x` itself, over the item
+set `{0, 00}`, which is not prefix-free, with no conditioning on length. So it shows what goes
+wrong when the reading is left unstated; it is not a counterexample to (a), (b) or (c). Under
+reading (a) the same example has excess exactly `0`
+(`HsiLean.HsiRateLength.rate_counterexample_length`): given the length, the "true" model and the
+`000…` model make the same prediction.
 -/
 
 namespace HsiLean.RateCounterexample
