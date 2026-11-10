@@ -573,12 +573,180 @@ theorem post_converges_mix (hw : ∑' i, w i = 1) (i : ℕ) :
   simp_rw [hpost_eq]
   exact tendsto_ofReal_of_tendsto hω
 
+/-! ## Overtaking is unlikely
+
+Cohen–Hutter `lem:overtaking`: Markov + Fatou on the likelihood ratio
+`ρ_t = R(x_{<t}) / P(x_{<t})`. Step (c) (the ratio converges `P`-a.s.) is obtained from the
+posterior-stability result already proved above, applied to the two-point class `{P, R}` with
+weights `1/2, 1/2`: there `ρ_t = 1 / w(P | x_{<t}) - 1`. -/
+
+/-- Every `ω` lies in the cylinder of its own length-`t` prefix. -/
+lemma mem_cyl_pre (ω : ℕ → Bool) (t : ℕ) : ω ∈ cyl (pre ω t) := by
+  have hlen : (pre ω t).length = t := by simp [pre]
+  show pre ω (pre ω t).length = pre ω t
+  rw [hlen]
+
+/-- Any function of the length-`t` prefix is measurable. -/
+lemma measurable_comp_pre {α : Type*} [MeasurableSpace α] (F : List Bool → α) (t : ℕ) :
+    Measurable (fun ω : ℕ → Bool => F (pre ω t)) := by
+  have h1 : Measurable (fun ω : ℕ → Bool => fun j : Fin t => ω j.val) :=
+    measurable_pi_lambda _ fun j => measurable_pi_apply j.val
+  have h2 : Measurable (fun v : Fin t → Bool => F (List.ofFn v)) := measurable_of_countable _
+  exact h2.comp h1
+
+/-- The length-`t` cylinders cover the space. -/
+lemma iUnion_cyl_ofFn (t : ℕ) :
+    ⋃ v : Fin t → Bool, cyl (List.ofFn v) = (Set.univ : Set (ℕ → Bool)) := by
+  ext ω
+  refine ⟨fun _ => trivial, fun _ => Set.mem_iUnion.mpr ⟨fun j => ω j.val, ?_⟩⟩
+  exact mem_cyl_pre ω t
+
+/-- The length-`t` cylinders are pairwise disjoint. -/
+lemma pairwise_disjoint_cyl_ofFn (t : ℕ) :
+    Pairwise (Function.onFun Disjoint fun v : Fin t → Bool => cyl (List.ofFn v)) := by
+  intro v u hvu
+  refine Set.disjoint_left.mpr fun ω hωv hωu => ?_
+  simp only [cyl, Set.mem_setOf_eq, List.length_ofFn] at hωv hωu
+  exact hvu (List.ofFn_inj.mp (hωv.symm.trans hωu))
+
+/-- Null cylinders form a countable union of null sets: almost surely, every prefix of `ω`
+has positive probability. -/
+lemma ae_cyl_pre_ne_zero (P : Measure (ℕ → Bool)) :
+    ∀ᵐ ω ∂P, ∀ t, P (cyl (pre ω t)) ≠ 0 := by
+  have hnull : P (⋃ x ∈ {x : List Bool | P (cyl x) = 0}, cyl x) = 0 :=
+    (measure_biUnion_null_iff (Set.to_countable _)).2 fun x hx => hx
+  rw [ae_iff]
+  refine measure_mono_null (fun ω hω => ?_) hnull
+  simp only [Set.mem_setOf_eq, not_forall, not_not] at hω
+  obtain ⟨t, ht⟩ := hω
+  exact Set.mem_biUnion (show pre ω t ∈ {x : List Bool | P (cyl x) = 0} from ht) (mem_cyl_pre ω t)
+
+/-- Step (e): the likelihood ratio has `P`-expectation at most one at every time. -/
+lemma lintegral_ratio_le_one (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure R] (t : ℕ) :
+    ∫⁻ ω, R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P ≤ 1 := by
+  have hm : ∀ v : Fin t → Bool, MeasurableSet (cyl (List.ofFn v)) := fun v => cyl_measurable _
+  have hsplit : ∫⁻ ω, R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P =
+      ∫⁻ ω in ⋃ v : Fin t → Bool, cyl (List.ofFn v),
+        R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P := by
+    rw [iUnion_cyl_ofFn, Measure.restrict_univ]
+  rw [hsplit, lintegral_iUnion hm (pairwise_disjoint_cyl_ofFn t), tsum_fintype]
+  calc ∑ v : Fin t → Bool, ∫⁻ ω in cyl (List.ofFn v),
+          R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P
+      ≤ ∑ v : Fin t → Bool, R (cyl (List.ofFn v)) := Finset.sum_le_sum fun v _ => by
+        have h_eqOn : Set.EqOn (fun ω => R (cyl (pre ω t)) / P (cyl (pre ω t)))
+            (fun _ => R (cyl (List.ofFn v)) / P (cyl (List.ofFn v))) (cyl (List.ofFn v)) := by
+          intro ω hω
+          simp only [cyl, Set.mem_setOf_eq, List.length_ofFn] at hω
+          simp only [hω]
+        rw [setLIntegral_congr_fun (hm v) h_eqOn, setLIntegral_const]
+        by_cases hp : P (cyl (List.ofFn v)) = 0
+        · rw [hp, mul_zero]; exact zero_le
+        · by_cases hp' : P (cyl (List.ofFn v)) = ⊤
+          · rw [hp', ENNReal.div_top, zero_mul]; exact zero_le
+          · rw [ENNReal.div_mul_cancel hp hp']
+    _ = R (⋃ v : Fin t → Bool, cyl (List.ofFn v)) := by
+        rw [measure_iUnion (pairwise_disjoint_cyl_ofFn t) hm, tsum_fintype]
+    _ ≤ 1 := prob_le_one
+
+/-- The two-point class `{P, R}` (index `0` is `P`, every other index is `R`). -/
+noncomputable def pairQ (P R : Measure (ℕ → Bool)) (i : ℕ) : Measure (ℕ → Bool) :=
+  if i = 0 then P else R
+
+/-- Weights `1/2, 1/2, 0, 0, …` for the two-point class. -/
+noncomputable def pairW (i : ℕ) : ℝ≥0∞ := if i < 2 then 2⁻¹ else 0
+
+instance pairQ_isProbabilityMeasure (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure P]
+    [IsProbabilityMeasure R] (i : ℕ) : IsProbabilityMeasure (pairQ P R i) := by
+  unfold pairQ
+  split <;> infer_instance
+
+lemma tsum_pairW : ∑' i, pairW i = 1 := by
+  rw [tsum_eq_sum (s := Finset.range 2)
+    (fun i hi => by simp only [Finset.mem_range] at hi; simp [pairW, hi])]
+  simp [Finset.sum_range_succ, pairW, ENNReal.inv_two_add_inv_two]
+
+lemma mix_pair (P R : Measure (ℕ → Bool)) (x : List Bool) :
+    mix (pairQ P R) pairW x = 2⁻¹ * P (cyl x) + 2⁻¹ * R (cyl x) := by
+  unfold mix
+  rw [tsum_eq_sum (s := Finset.range 2)
+    (fun i hi => by simp only [Finset.mem_range] at hi; simp [pairW, hi])]
+  simp [Finset.sum_range_succ, pairW, pairQ]
+
+/-- The likelihood ratio in terms of the posterior of `P` in the two-point class:
+`r / p = 1 / w(P | x) - 1`. -/
+lemma ratio_eq_inv_post_sub_one (p r : ℝ≥0∞) (hp : p ≠ 0) (hp' : p ≠ ⊤) :
+    r / p = (2⁻¹ * p / (2⁻¹ * p + 2⁻¹ * r))⁻¹ - 1 := by
+  have h2 : (2 : ℝ≥0∞)⁻¹ ≠ 0 := by simp
+  have h2' : (2 : ℝ≥0∞)⁻¹ ≠ ⊤ := by simp
+  have hhp : 2⁻¹ * p ≠ 0 := mul_ne_zero h2 hp
+  have hhp' : 2⁻¹ * p ≠ ⊤ := ENNReal.mul_ne_top h2' hp'
+  rw [ENNReal.inv_div (Or.inr hhp') (Or.inr hhp), ENNReal.add_div, ENNReal.div_self hhp hhp',
+    ENNReal.mul_div_mul_left _ _ h2 h2', ENNReal.add_sub_cancel_left one_ne_top]
+
+/-- Step (c): the likelihood ratio converges `P`-almost surely (in `[0, ∞]`). -/
+lemma ratio_tendsto (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure P]
+    [IsProbabilityMeasure R] :
+    ∀ᵐ ω ∂P, ∃ L, Tendsto (fun t => R (cyl (pre ω t)) / P (cyl (pre ω t))) atTop (𝓝 L) := by
+  have hconv : ∀ᵐ ω ∂(pairQ P R 0), ∃ L,
+      Tendsto (fun t => post (pairQ P R) pairW 0 (pre ω t)) atTop (𝓝 L) :=
+    absolutelyContinuous_mixMeasure (pairQ P R) pairW 0 (by simp [pairW]) (by simp [pairW])
+      (post_converges_mix (pairQ P R) pairW tsum_pairW 0)
+  have hP : pairQ P R 0 = P := if_pos rfl
+  rw [hP] at hconv
+  filter_upwards [hconv, ae_cyl_pre_ne_zero P] with ω hω hne
+  obtain ⟨L, hL⟩ := hω
+  refine ⟨L⁻¹ - 1, ?_⟩
+  have key : ∀ t, R (cyl (pre ω t)) / P (cyl (pre ω t)) =
+      (post (pairQ P R) pairW 0 (pre ω t))⁻¹ - 1 := by
+    intro t
+    rw [ratio_eq_inv_post_sub_one _ (R (cyl (pre ω t))) (hne t) (measure_ne_top P _)]
+    unfold post
+    rw [mix_pair]
+    simp [pairW, pairQ]
+  simp_rw [key]
+  exact ENNReal.Tendsto.sub (ENNReal.tendsto_inv_iff.2 hL) tendsto_const_nhds
+    (Or.inr one_ne_top)
+
 /-- **Overtaking is unlikely** (Cohen–Hutter `lem:overtaking`, from Hutter 2009 Lemma 4):
 `P[R(x_{<t}) / P(x_{<t}) ≥ c infinitely often] ≤ 1/c`, written without division. -/
 theorem overtaking (P R : Measure (ℕ → Bool)) [IsProbabilityMeasure P]
     [IsProbabilityMeasure R] (c : ℝ≥0∞) (hc : c ≠ 0) :
     P {ω | ∃ᶠ t in atTop, c * P (cyl (pre ω t)) ≤ R (cyl (pre ω t))} ≤ c⁻¹ := by
-  sorry
+  have hρ_meas : ∀ t, Measurable (fun ω : ℕ → Bool => R (cyl (pre ω t)) / P (cyl (pre ω t))) :=
+    fun t => measurable_comp_pre (fun x => R (cyl x) / P (cyl x)) t
+  set g : (ℕ → Bool) → ℝ≥0∞ :=
+    fun ω => liminf (fun t => R (cyl (pre ω t)) / P (cyl (pre ω t))) atTop with hg
+  have hg_meas : Measurable g := Measurable.liminf hρ_meas
+  -- (a) + (c): a.s., "ratio ≥ c infinitely often" forces the limit (= liminf) to be ≥ c.
+  have hsub : ∀ᵐ ω ∂P,
+      ω ∈ {ω | ∃ᶠ t in atTop, c * P (cyl (pre ω t)) ≤ R (cyl (pre ω t))} →
+        ω ∈ {ω | c ≤ g ω} := by
+    filter_upwards [ratio_tendsto P R, ae_cyl_pre_ne_zero P] with ω hω hne hfreq
+    obtain ⟨L, hL⟩ := hω
+    have hgL : g ω = L := hL.liminf_eq
+    show c ≤ g ω
+    rw [hgL]
+    by_contra hlt
+    rw [not_le] at hlt
+    have hev : ∀ᶠ t in atTop, R (cyl (pre ω t)) / P (cyl (pre ω t)) < c :=
+      hL.eventually (gt_mem_nhds hlt)
+    obtain ⟨t, h1, h2⟩ := (Filter.Frequently.and_eventually hfreq hev).exists
+    exact absurd ((ENNReal.le_div_iff_mul_le (Or.inl (hne t))
+      (Or.inl (measure_ne_top P _))).2 h1) (not_le.2 h2)
+  have h1 : P {ω | ∃ᶠ t in atTop, c * P (cyl (pre ω t)) ≤ R (cyl (pre ω t))} ≤
+      P {ω | c ≤ g ω} := measure_mono_ae hsub
+  -- (b) Markov.
+  have h2 : c * P {ω | c ≤ g ω} ≤ ∫⁻ ω, g ω ∂P := mul_meas_ge_le_lintegral hg_meas c
+  -- (d) Fatou.
+  have h3 : ∫⁻ ω, g ω ∂P ≤
+      liminf (fun t => ∫⁻ ω, R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P) atTop :=
+    lintegral_liminf_le hρ_meas
+  -- (e) each expectation is at most one.
+  have h4 : liminf (fun t => ∫⁻ ω, R (cyl (pre ω t)) / P (cyl (pre ω t)) ∂P) atTop ≤ 1 :=
+    Filter.liminf_le_of_frequently_le'
+      (Filter.Frequently.of_forall fun t => lintegral_ratio_le_one P R t)
+  rw [ENNReal.le_inv_iff_mul_le, mul_comm]
+  exact (mul_le_mul' le_rfl h1).trans (h2.trans (h3.trans h4))
 
 /-- **Posteriors converge** (Cohen–Hutter's posterior-stability lemma, from Hutter 2016
 Thm 4): each posterior weight converges with probability one under the true measure. -/
@@ -608,13 +776,126 @@ lemma tsum_limit_le_one {L : ℕ → ℝ≥0∞} {f : ℕ → ℕ → ℝ≥0∞
     (ENNReal.sum_le_tsum F).trans (h_bdd t)
   exact le_of_tendsto' hfinite_lim hfinite_le
 
+/-! ## Sum of limits: the finite-subclass argument
+
+Cohen–Hutter `lem:sumoflimits`. The tail class `{Q i : i ≥ N}` plays the role of the paper's
+`M \ M̄`; its normalised mixture is the `R` fed to `overtaking`. The paper lets the finite
+subclass depend on `ω`; here the quantifiers are ordered so that every set whose probability
+is taken is fixed in advance: for each threshold `δ`, the sets
+`A N = {tail-`N` posterior mass ≥ δ infinitely often}` have probability at most
+`w(tail N) / (δ · w(P))` (the Lean `overtaking` with `c = δ · w(P) / w(tail N)`, bound `c⁻¹`),
+which tends to `0`, so almost surely some `N` has tail posterior mass eventually `≤ δ`. -/
+
+/-- The un-normalised mixture of the tail class `{Q i : i ≥ N}`. -/
+noncomputable def tailMeasure (N : ℕ) : Measure (ℕ → Bool) :=
+  Measure.sum (fun i => w (i + N) • Q (i + N))
+
+lemma tailMeasure_univ (N : ℕ) : tailMeasure Q w N Set.univ = ∑' i, w (i + N) := by
+  rw [tailMeasure, Measure.sum_apply _ MeasurableSet.univ]
+  simp only [Measure.smul_apply, measure_univ, smul_eq_mul, mul_one]
+
+lemma tailMeasure_cyl (N : ℕ) (x : List Bool) :
+    tailMeasure Q w N (cyl x) = ∑' i, w (i + N) * Q (i + N) (cyl x) := by
+  rw [tailMeasure, Measure.sum_apply _ (cyl_measurable x)]
+  rfl
+
+/-- The posterior mass of the tail class: `w(tail | x) = tail(x) / ξ(x)`. -/
+lemma tsum_post_tail (N : ℕ) (x : List Bool) :
+    ∑' i, post Q w (i + N) x = tailMeasure Q w N (cyl x) / mix Q w x := by
+  rw [tailMeasure_cyl]
+  simp only [post, div_eq_mul_inv]
+  rw [ENNReal.tsum_mul_right]
+
+/-- `overtaking` applied to the normalised tail mixture: the tail mixture exceeds `a · P`
+infinitely often with probability at most `w(tail) / a`. -/
+lemma tail_overtaking (hw : ∑' i, w i = 1) (i₀ N : ℕ) (a : ℝ≥0∞) (ha : a ≠ 0) (ha' : a ≠ ⊤) :
+    Q i₀ {ω | ∃ᶠ t in atTop,
+        a * Q i₀ (cyl (pre ω t)) ≤ tailMeasure Q w N (cyl (pre ω t))} ≤
+      (∑' i, w (i + N)) * a⁻¹ := by
+  obtain ⟨W, hW⟩ : ∃ W, W = ∑' i, w (i + N) := ⟨_, rfl⟩
+  rw [← hW]
+  have hT_univ : tailMeasure Q w N Set.univ = W := by rw [tailMeasure_univ, hW]
+  have hW_le : W ≤ 1 := by
+    rw [hW]
+    exact (ENNReal.tsum_comp_le_tsum_of_injective (add_left_injective N) w).trans hw.le
+  have hW_top : W ≠ ⊤ := ne_top_of_le_ne_top one_ne_top hW_le
+  by_cases hW0 : W = 0
+  · -- The tail has no prior mass: the event forces a null cylinder.
+    rw [hW0, zero_mul, nonpos_iff_eq_zero]
+    have hnull := ae_cyl_pre_ne_zero (Q i₀)
+    rw [ae_iff] at hnull
+    refine measure_mono_null (fun ω hω => ?_) hnull
+    obtain ⟨t, ht⟩ := Filter.Frequently.exists hω
+    have hT : tailMeasure Q w N (cyl (pre ω t)) = 0 := by
+      refine le_antisymm ?_ zero_le
+      calc tailMeasure Q w N (cyl (pre ω t))
+          ≤ tailMeasure Q w N Set.univ := measure_mono (Set.subset_univ _)
+        _ = 0 := by rw [hT_univ, hW0]
+    rw [hT, nonpos_iff_eq_zero, mul_eq_zero] at ht
+    simp only [Set.mem_setOf_eq, not_forall, not_not]
+    exact ⟨t, ht.resolve_left ha⟩
+  · haveI : IsProbabilityMeasure (W⁻¹ • tailMeasure Q w N) := ⟨by
+      rw [Measure.smul_apply, hT_univ, smul_eq_mul]
+      exact ENNReal.inv_mul_cancel hW0 hW_top⟩
+    have hc : W⁻¹ * a ≠ 0 := mul_ne_zero (ENNReal.inv_ne_zero.2 hW_top) ha
+    have h := overtaking (Q i₀) (W⁻¹ • tailMeasure Q w N) (W⁻¹ * a) hc
+    have hinv : (W⁻¹ * a)⁻¹ = W * a⁻¹ := by
+      rw [ENNReal.mul_inv (Or.inr ha') (Or.inr ha), inv_inv]
+    rw [hinv] at h
+    refine (measure_mono (fun ω hω => ?_)).trans h
+    refine Filter.Frequently.mono hω fun t ht => ?_
+    rw [Measure.smul_apply, smul_eq_mul, mul_assoc]
+    exact mul_le_mul' le_rfl ht
+
+/-- Almost surely, for a fixed threshold `δ`, some tail of the class has posterior mass
+eventually at most `δ`. -/
+lemma ae_tail_post_small (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0)
+    (δ : ℝ≥0∞) (hδ : δ ≠ 0) (hδ' : δ ≠ ⊤) :
+    ∀ᵐ ω ∂(Q i₀), ∃ N, ∀ᶠ t in atTop, ∑' i, post Q w (i + N) (pre ω t) ≤ δ := by
+  obtain ⟨a, haeq⟩ : ∃ a, a = δ * w i₀ := ⟨_, rfl⟩
+  have ha : a ≠ 0 := by rw [haeq]; exact mul_ne_zero hδ hi₀
+  have ha' : a ≠ ⊤ := by rw [haeq]; exact ENNReal.mul_ne_top hδ' (wi_ne_top w hw i₀)
+  have hA : Q i₀ (⋂ N, {ω | ∃ᶠ t in atTop,
+      a * Q i₀ (cyl (pre ω t)) ≤ tailMeasure Q w N (cyl (pre ω t))}) = 0 := by
+    have hlim : Tendsto (fun N => (∑' i, w (i + N)) * a⁻¹) atTop (𝓝 0) := by
+      have h0 := ENNReal.Tendsto.mul_const (b := a⁻¹)
+        (ENNReal.tendsto_sum_nat_add w (by rw [hw]; exact one_ne_top))
+        (Or.inr (ENNReal.inv_ne_top.2 ha))
+      simpa using h0
+    refine le_antisymm ?_ zero_le
+    exact ge_of_tendsto' hlim fun N =>
+      (measure_mono (Set.iInter_subset _ N)).trans (tail_overtaking Q w hw i₀ N a ha ha')
+  have hA' : ∀ᵐ ω ∂(Q i₀), ω ∉ ⋂ N, {ω | ∃ᶠ t in atTop,
+      a * Q i₀ (cyl (pre ω t)) ≤ tailMeasure Q w N (cyl (pre ω t))} := by
+    rw [ae_iff]
+    simp only [not_not]
+    exact hA
+  filter_upwards [hA'] with ω hω
+  simp only [Set.mem_iInter, not_forall, Set.mem_setOf_eq] at hω
+  obtain ⟨N, hN⟩ := hω
+  refine ⟨N, ?_⟩
+  filter_upwards [Filter.not_frequently.1 hN] with t ht
+  rw [tsum_post_tail]
+  refine ENNReal.div_le_of_le_mul ?_
+  calc tailMeasure Q w N (cyl (pre ω t))
+      ≤ a * Q i₀ (cyl (pre ω t)) := (not_le.1 ht).le
+    _ = δ * (w i₀ * Q i₀ (cyl (pre ω t))) := by rw [haeq, mul_assoc]
+    _ ≤ δ * mix Q w (pre ω t) := mul_le_mul' le_rfl (ENNReal.le_tsum i₀)
+
 /-- **Sum of limits** (Cohen–Hutter `lem:sumoflimits`): with probability one under the true
 measure, every posterior converges and the limits still sum to one — no posterior mass
 escapes to infinity. -/
 theorem sum_of_limits (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0) :
     ∀ᵐ ω ∂(Q i₀), ∃ L : ℕ → ℝ≥0∞,
       (∀ i, Tendsto (fun t => post Q w i (pre ω t)) atTop (𝓝 (L i))) ∧ ∑' i, L i = 1 := by
-  filter_upwards [post_converges_all Q w hw i₀ hi₀] with ω h
+  have hK : ∀ᵐ ω ∂(Q i₀), ∀ n : ℕ, ∃ N, ∀ᶠ t in atTop,
+      ∑' i, post Q w (i + N) (pre ω t) ≤ ((n : ℝ≥0∞) + 1)⁻¹ := by
+    rw [ae_all_iff]
+    intro n
+    exact ae_tail_post_small Q w hw i₀ hi₀ _ (ENNReal.inv_ne_zero.2 (by simp))
+      (ENNReal.inv_ne_top.2 (by simp))
+  filter_upwards [post_converges_all Q w hw i₀ hi₀, hK, ae_cyl_pre_ne_zero (Q i₀)]
+    with ω h hKω hne
   classical
   refine ⟨fun i => (h i).choose, fun i => (h i).choose_spec, ?_⟩
   -- ≤ 1 direction: Fatou on the uniform bound `tsum_post ≤ 1`.
@@ -622,7 +903,27 @@ theorem sum_of_limits (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 0)
     tsum_limit_le_one (fun i => (h i).choose_spec)
       (fun t => tsum_post_le_one Q w hw _)
   refine le_antisymm h_le ?_
-  -- ≥ 1 direction: the paper's finite-subclass argument using `overtaking`.
-  sorry
+  -- ≥ 1 direction: the paper's finite-subclass argument using `overtaking`
+  -- (packaged in `ae_tail_post_small`).
+  have hmix : ∀ t, mix Q w (pre ω t) ≠ 0 := fun t hz => by
+    have hle : w i₀ * Q i₀ (cyl (pre ω t)) ≤ mix Q w (pre ω t) := ENNReal.le_tsum i₀
+    rw [hz, nonpos_iff_eq_zero, mul_eq_zero] at hle
+    exact hle.elim hi₀ (hne t)
+  refine ENNReal.le_of_forall_pos_le_add fun ε hε _ => ?_
+  obtain ⟨n, hn⟩ := ENNReal.exists_inv_nat_lt (a := (ε : ℝ≥0∞)) (ENNReal.coe_ne_zero.2 hε.ne')
+  obtain ⟨N, hN⟩ := hKω n
+  have hδ : ((n : ℝ≥0∞) + 1)⁻¹ ≤ ε := (ENNReal.inv_le_inv.2 le_self_add).trans hn.le
+  have hlim : Tendsto (fun t => ∑ i ∈ Finset.range N, post Q w i (pre ω t)) atTop
+      (𝓝 (∑ i ∈ Finset.range N, (h i).choose)) :=
+    tendsto_finsetSum _ fun i _ => (h i).choose_spec
+  have hev : ∀ᶠ t in atTop, 1 ≤ ∑ i ∈ Finset.range N, post Q w i (pre ω t) + ε := by
+    filter_upwards [hN] with t ht
+    calc (1 : ℝ≥0∞) = ∑' i, post Q w i (pre ω t) := (tsum_post Q w hw _ (hmix t)).symm
+      _ = ∑ i ∈ Finset.range N, post Q w i (pre ω t) + ∑' i, post Q w (i + N) (pre ω t) :=
+          (Summable.sum_add_tsum_nat_add' ENNReal.summable).symm
+      _ ≤ ∑ i ∈ Finset.range N, post Q w i (pre ω t) + ε := add_le_add le_rfl (ht.trans hδ)
+  have h1 : 1 ≤ ∑ i ∈ Finset.range N, (h i).choose + ε :=
+    ge_of_tendsto (hlim.add tendsto_const_nhds) hev
+  exact h1.trans (add_le_add (ENNReal.sum_le_tsum _) le_rfl)
 
 end HsiLean.Posterior
