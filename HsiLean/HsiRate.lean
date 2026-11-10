@@ -43,18 +43,84 @@ noncomputable def itemModel (ν : ℕ → Semimeasure) (A : Set (List Bool)) : �
 
 /-! ## The bridge: semimeasures sum to at most one over a prefix-free set -/
 
+lemma PrefixFree.mono {A B : Set (List Bool)} (hB : PrefixFree B) (hAB : A ⊆ B) :
+    PrefixFree A :=
+  fun x hx y hy hxy => hB x (hAB hx) y (hAB hy) hxy
+
+/-- Induction on the depth `n` of the tree below `x`: the bridge for finite prefix-free sets all
+of whose strings extend `x` by at most `n` symbols. -/
+lemma sum_le_aux (μ : Semimeasure) : ∀ (n : ℕ) (x : List Bool) (s : Finset (List Bool)),
+    PrefixFree (↑s : Set (List Bool)) → (∀ a ∈ s, x <+: a) →
+    (∀ a ∈ s, a.length ≤ x.length + n) → ∑ a ∈ s, μ a ≤ μ x := by
+  classical
+  intro n
+  induction n with
+  | zero =>
+    intro x s _ hx hlen
+    have hsub : s ⊆ {x} := by
+      intro a ha
+      rw [Finset.mem_singleton]
+      exact ((hx a ha).eq_of_length_le (by simpa using hlen a ha)).symm
+    calc ∑ a ∈ s, μ a ≤ ∑ a ∈ ({x} : Finset (List Bool)), μ a :=
+          Finset.sum_le_sum_of_subset hsub
+      _ = μ x := by simp
+  | succ n ih =>
+    intro x s hs hx hlen
+    by_cases hxs : x ∈ s
+    · -- `x` itself is in the set, so by prefix-freeness it is the only element.
+      have hsub : s ⊆ {x} := by
+        intro a ha
+        rw [Finset.mem_singleton]
+        exact (hs x (Finset.mem_coe.mpr hxs) a (Finset.mem_coe.mpr ha) (hx a ha)).symm
+      calc ∑ a ∈ s, μ a ≤ ∑ a ∈ ({x} : Finset (List Bool)), μ a :=
+            Finset.sum_le_sum_of_subset hsub
+        _ = μ x := by simp
+    · -- Otherwise every element extends `x0` or `x1`; split and use `μ x0 + μ x1 ≤ μ x`.
+      have hcover : ∀ a ∈ s, ¬ (x ++ [false] <+: a) → x ++ [true] <+: a := by
+        intro a ha hna
+        obtain ⟨t, rfl⟩ := hx a ha
+        cases t with
+        | nil => exact absurd (by simpa using ha) hxs
+        | cons b t =>
+          cases b with
+          | false => exact absurd ⟨t, by simp⟩ hna
+          | true => exact ⟨t, by simp⟩
+      rw [← Finset.sum_filter_add_sum_filter_not s (fun a => x ++ [false] <+: a)]
+      refine le_trans (add_le_add ?_ ?_) (μ.extend_le x)
+      · refine ih (x ++ [false]) _ (hs.mono (Finset.coe_subset.mpr (Finset.filter_subset _ _)))
+          (fun a ha => (Finset.mem_filter.mp ha).2) (fun a ha => ?_)
+        have := hlen a (Finset.mem_filter.mp ha).1
+        simp only [List.length_append, List.length_singleton]
+        omega
+      · refine ih (x ++ [true]) _ (hs.mono (Finset.coe_subset.mpr (Finset.filter_subset _ _)))
+          (fun a ha => hcover a (Finset.mem_filter.mp ha).1 (Finset.mem_filter.mp ha).2)
+          (fun a ha => ?_)
+        have := hlen a (Finset.mem_filter.mp ha).1
+        simp only [List.length_append, List.length_singleton]
+        omega
+
 /-- **[UNAPPROVED STATEMENT]** A semimeasure's total mass on a finite prefix-free set of strings,
 all of which extend `x`, is at most its mass on `x`. -/
 theorem sum_le_of_prefixFree (μ : Semimeasure) (x : List Bool) (s : Finset (List Bool))
     (hs : PrefixFree (↑s : Set (List Bool))) (hx : ∀ a ∈ s, x <+: a) :
-    ∑ a ∈ s, μ a ≤ μ x := by
-  sorry
+    ∑ a ∈ s, μ a ≤ μ x :=
+  sum_le_aux μ (s.sup List.length) x s hs hx fun _ ha =>
+    (Finset.le_sup (f := List.length) ha).trans (Nat.le_add_left _ _)
 
 /-- **[UNAPPROVED STATEMENT]** The bridge lemma (Kraft-style): a semimeasure sums to at most one
 over any prefix-free set of strings. -/
 theorem tsum_le_one_of_prefixFree (μ : Semimeasure) {A : Set (List Bool)} (hA : PrefixFree A) :
     ∑' a : A, μ a.1 ≤ 1 := by
-  sorry
+  refine le_trans ?_ μ.empty_le_one
+  rw [ENNReal.tsum_eq_iSup_sum]
+  refine iSup_le fun s => ?_
+  have h := sum_le_of_prefixFree μ [] (s.map (Function.Embedding.subtype _)) ?_
+    (fun a _ => List.nil_prefix)
+  · rwa [Finset.sum_map] at h
+  · intro a ha b hb hab
+    obtain ⟨a', _, rfl⟩ := Finset.mem_map.mp (Finset.mem_coe.mp ha)
+    obtain ⟨b', _, rfl⟩ := Finset.mem_map.mp (Finset.mem_coe.mp hb)
+    exact hA _ a'.2 _ b'.2 hab
 
 /-! ## The rate for HSI's dataset predictor -/
 
