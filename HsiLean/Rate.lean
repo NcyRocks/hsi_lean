@@ -44,7 +44,7 @@ three readings under which that holds:
     its content `x` has probability `ν x`; items may have any lengths
     (`HsiRateLength.lean`, where `P j x = lam |x| * ν j x` and `lam` cancels);
 (b) **the stopping model** (the paper's `lm:bijection`): the probability that a machine's output
-    is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`;
+    is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)` (`HsiRateStop.lean`);
 (c) **prefix-free items**: the probability is `ν x`, with items restricted to a prefix-free set
     (`HsiRate.lean`).
 

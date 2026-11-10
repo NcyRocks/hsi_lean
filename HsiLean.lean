@@ -6,3 +6,4 @@ import HsiLean.Rate
 import HsiLean.RateCounterexample
 import HsiLean.HsiRate
 import HsiLean.HsiRateLength
+import HsiLean.HsiRateStop

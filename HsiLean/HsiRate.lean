@@ -34,7 +34,7 @@ There are three readings of "the probability a model `ν` gives to the dataset i
 (a) **conditioned on length** (Nathan's intended reading): given that an item has `n` symbols,
     its content `x` has probability `ν x`; items of any lengths (`HsiRateLength.lean`);
 (b) **the stopping model** (the paper's `lm:bijection`): the probability that a machine's output
-    is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`;
+    is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)` (`HsiRateStop.lean`);
 (c) **prefix-free items**: the probability is `ν x`, with items restricted to a prefix-free set
     `A`.
 

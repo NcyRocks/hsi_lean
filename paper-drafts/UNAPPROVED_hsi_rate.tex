@@ -199,5 +199,9 @@ In the example of the remark above, sampling $0$ and $00$ with probability $\tfr
 \end{remark}
 
 \begin{remark}[Three readings]
+% Lean for (b): HsiLean/HsiRateStop.lean — tsum_halt_le_one (the halting masses
+% nu(x) - nu(x0) - nu(x1) sum to at most nu(epsilon) <= 1 over ALL finite strings, by the same
+% induction as the prefix-free lemma), hsi_end_to_end_stop. Under (b) the true machine must halt
+% with probability one.
 An item's probability under $\nu$ can be read as (a) $\nu(x)$ given the length $|x|$ (above); (b) the probability that the machine's output is exactly $x$, namely $\nu(x)-\nu(x0)-\nu(x1)$ (Lemma \ref{lm:bijection}); or (c) $\nu(x)$ with items restricted to a prefix-free set (Theorem \ref{thm:hsi-end-to-end}). Each makes Assumption \ref{ass:hsi-rate}(ii) hold; (c) with $A=\mathbb{B}^n$ is (a) with a single length.
 \end{remark}

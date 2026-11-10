@@ -31,7 +31,7 @@ In this example the excess does not depend on the data at all: for a dataset of 
 There are three readings of "the probability a model `ν` gives to the item `x`" under which the
 rate holds: (a) conditioned on the item's length (Nathan's intended reading;
 `HsiRateLength.lean`); (b) the stopping model, the paper's `lm:bijection` (the probability that
-a machine's output is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`); (c) `ν x` with items
+a machine's output is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`; `HsiRateStop.lean`); (c) `ν x` with items
 restricted to a prefix-free set (`HsiRate.lean`).
 
 This file uses NONE of them: it takes the item's probability to be `ν x` itself, over the item

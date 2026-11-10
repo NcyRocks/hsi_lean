@@ -18,7 +18,7 @@ Nathan's (2026-11-11); the paper does not state it.
     predicts `0` with certainty given length 1 and `00` with certainty given length 2. Items may
     have ANY lengths; no prefix-free restriction.
 (b) **The stopping model** (the paper's `lm:bijection`): the probability that the machine's
-    output is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)`. Not formalised here.
+    output is exactly `x`, i.e. `ν x - ν (x0) - ν (x1)` (`HsiRateStop.lean`).
 (c) **Prefix-free items** (`HsiRate.lean`): the probability of `x` is `ν x`, and items are
     restricted to a prefix-free set.
 
