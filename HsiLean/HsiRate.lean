@@ -129,6 +129,7 @@ section Prob
 variable {A : Set (List Bool)} [MeasurableSpace A] [MeasurableSingletonClass A]
 variable {Ω : Type*} [MeasurableSpace Ω]
 
+omit [MeasurableSingletonClass A] in
 /-- **[UNAPPROVED STATEMENT]** The hypotheses of `Rate.lean` hold for HSI over a prefix-free set
 of items: models = the enumerated semimeasures restricted to `A`, weights = the hyperprior
 weights `w`, data = independent draws `X 0, X 1, …` from `A`, each with law `ν j₀`. -/
@@ -136,8 +137,8 @@ theorem iidFromModel_of_prefixFree (ν : ℕ → Semimeasure) (w : Weights) (hA 
     (j₀ : ℕ) (Pr : Measure Ω) (X : ℕ → Ω → A)
     (hX : ∀ n, Measurable (X n)) (hind : iIndepFun X Pr)
     (hlaw : ∀ n (a : A), Pr (X n ⁻¹' {a}) = ν j₀ a.1) :
-    IIDFromModel (itemModel ν A) w.toFun j₀ Pr X := by
-  sorry
+    IIDFromModel (itemModel ν A) w.toFun j₀ Pr X :=
+  ⟨fun j => tsum_le_one_of_prefixFree (ν j) hA, w.tsum_le_one, (w.pos j₀).ne', hX, hind, hlaw⟩
 
 /-- **[UNAPPROVED STATEMENT]** The rate of convergence for HSI over datasets.
 
@@ -164,17 +165,20 @@ theorem hsi_rate (ν : ℕ → Semimeasure) (w : Weights) (hA : PrefixFree A)
         ({n | ε < ∫ ω, excessAt (itemModel ν A) w.toFun j₀ X n ω ∂Pr}.ncard : ℝ)
           ≤ -Real.logb 2 (w.toFun j₀).toReal / ε) ∧
     Tendsto (fun n => ∫ ω, excessAt (itemModel ν A) w.toFun j₀ X n ω ∂Pr) atTop (𝓝 0) := by
-  sorry
+  have h := iidFromModel_of_prefixFree ν w hA j₀ Pr X hX hind hlaw
+  exact ⟨fun n => ⟨integrable_excessAt h n, expected_excess_nonneg h n⟩,
+    tsum_expected_excess_le h, fun ε hε => expected_excess_rate h hε, tendsto_expected_excess h⟩
 
 /-! ## The link between the dataset predictor and the HSI mixture -/
 
+omit [MeasurableSpace A] [MeasurableSingletonClass A] in
 /-- **[UNAPPROVED STATEMENT]** On a one-item dataset, the dataset probability `mixL` of
 `Rate.lean` is the HSI mixture semimeasure `mixture ν w` of `Basic.lean`, evaluated at that
 item. (So the predictor in `hsi_rate` is built from the same object the spine theorem is
 about.) -/
 theorem mixL_singleton (ν : ℕ → Semimeasure) (w : Weights) (a : A) :
     mixL (itemModel ν A) w.toFun [a] = mixture ν w a.1 := by
-  sorry
+  simp [mixL, lik, itemModel]
 
 /-! ## The headline -/
 
@@ -203,13 +207,17 @@ theorem hsi_end_to_end (ν : ℕ → Semimeasure) (hν_enum : UniformlyEnumerabl
         ({n | ε < ∫ ω, excessAt (itemModel ν A) w.toFun j₀ X n ω ∂Pr}.ncard : ℝ)
           ≤ -Real.logb 2 (w.toFun j₀).toReal / ε) ∧
     Tendsto (fun n => ∫ ω, excessAt (itemModel ν A) w.toFun j₀ X n ω ∂Pr) atTop (𝓝 0) := by
-  sorry
+  refine ⟨?_, hsi_rate ν w hA j₀ Pr X hX hind hlaw⟩
+  have hmem : mixture ν w ∈ MixtureClass ν := ⟨w, rfl⟩
+  rw [Wood.mixtureClass_eq_universalMixtures' ν hν_enum hν_univ] at hmem
+  exact hmem
 
 /-- **[UNAPPROVED STATEMENT]** The enumeration `Wood.enum` of all enumerable semimeasures
 satisfies the hypotheses of the spine theorem: it is effective and every universal mixture
 appears in it. -/
 theorem enum_containsAllUniversalMixtures : ContainsAllUniversalMixtures Wood.enum := by
-  sorry
+  rintro ξ ⟨ν', w', hen, _, rfl⟩
+  exact Wood.enum_complete _ (hen.mixture_enumerable w')
 
 /-- **[UNAPPROVED STATEMENT]** HSI end to end, for the concrete enumeration `Wood.enum` and an
 arbitrary enumerable truth.
@@ -237,7 +245,9 @@ theorem hsi_end_to_end_enum (w : Weights) (μ : Semimeasure) (hμ : μ.Enumerabl
           ≤ -Real.logb 2 (w.toFun j₀).toReal / ε) ∧
     Tendsto (fun n => ∫ ω, excessAt (itemModel Wood.enum A) w.toFun j₀ X n ω ∂Pr)
       atTop (𝓝 0) := by
-  sorry
+  obtain ⟨j₀, rfl⟩ := Wood.enum_complete μ hμ
+  exact ⟨⟨Wood.enum, w, Wood.enum_uniformlyEnumerable, Wood.enum_complete, rfl⟩, j₀, rfl,
+    w.pos j₀, hsi_rate Wood.enum w hA j₀ Pr X hX hind hlaw⟩
 
 /-- **[UNAPPROVED STATEMENT]** The hypotheses are not vacuous: whenever a semimeasure `μ` is a
 probability distribution on the items of `A` (`∑_{a ∈ A} μ a = 1`), there is a probability
@@ -248,7 +258,9 @@ theorem exists_iid_items (μ : Semimeasure) (hμ : ∑' a : A, μ a.1 = 1) :
       (∀ n, Measurable (fun ω : ℕ → A => ω n)) ∧
       iIndepFun (fun n (ω : ℕ → A) => ω n) Pr ∧
       ∀ n (a : A), Pr ((fun ω : ℕ → A => ω n) ⁻¹' {a}) = μ a.1 := by
-  sorry
+  obtain ⟨Pr, hPr, h⟩ := exists_iidFromModel (α := A) (fun _ a => μ a.1)
+    (fun j => if j = 0 then 1 else 0) 0 (fun _ => hμ.le) (by simp) (by simp) hμ
+  exact ⟨Pr, hPr, h.meas, h.indep, h.law⟩
 
 end Prob
 
