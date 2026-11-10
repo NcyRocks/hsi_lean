@@ -4,3 +4,4 @@ import HsiLean.Dominance
 import HsiLean.Posterior
 import HsiLean.Rate
 import HsiLean.RateCounterexample
+import HsiLean.HsiRate
