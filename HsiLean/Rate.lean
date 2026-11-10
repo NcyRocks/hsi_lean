@@ -1,5 +1,7 @@
 -- ⚠️ UNAPPROVED: every statement in this file was drafted by Claude (Fable 5.2) on 2026-11-10 and has NOT been reviewed by Nathan.
 import Mathlib.Probability.Independence.Basic
+import Mathlib.Probability.Independence.InfinitePi
+import Mathlib.Probability.ProbabilityMassFunction.Basic
 import Mathlib.Probability.Martingale.Convergence
 import Mathlib.Analysis.SpecialFunctions.Log.Base
 import Mathlib.MeasureTheory.Integral.Lebesgue.Countable
@@ -537,6 +539,24 @@ expected excess log-loss on the `ν`-th item tends to `0` as `ν → ∞`. -/
 theorem tendsto_expected_excess (h : IIDFromModel P w j₀ Pr X) :
     Tendsto (fun ν => ∫ ω, excessAt P w j₀ X ν ω ∂Pr) atTop (𝓝 0) :=
   (tsum_expected_excess_le h).1.tendsto_atTop_zero
+
+/-- **[UNAPPROVED STATEMENT]** The hypotheses are not vacuous: whenever the true model `P j₀` is
+a genuine probability distribution on items (`∑' a, P j₀ a = 1`), there is a probability space
+carrying an i.i.d. sequence of items drawn from it — the coordinate process on `ℕ → α` under
+the infinite product measure. -/
+theorem exists_iidFromModel (P : ℕ → α → ℝ≥0∞) (w : ℕ → ℝ≥0∞) (j₀ : ℕ)
+    (hP : ∀ j, ∑' a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) (hw0 : w j₀ ≠ 0)
+    (hμ : ∑' a, P j₀ a = 1) :
+    ∃ Pr : Measure (ℕ → α), IsProbabilityMeasure Pr ∧
+      IIDFromModel P w j₀ Pr (fun ν ω => ω ν) := by
+  let p : PMF α := ⟨P j₀, ENNReal.summable.hasSum_iff.mpr hμ⟩
+  refine ⟨Measure.infinitePi (fun _ : ℕ => p.toMeasure), inferInstance, ?_⟩
+  refine ⟨hP, hw, hw0, fun ν => measurable_pi_apply ν, ?_, fun ν a => ?_⟩
+  · exact iIndepFun_infinitePi (P := fun _ : ℕ => p.toMeasure) (X := fun _ a => a)
+      (fun _ => measurable_id)
+  · rw [← Measure.map_apply (measurable_pi_apply ν) (measurableSet_singleton a),
+      Measure.infinitePi_map_eval, PMF.toMeasure_apply_singleton _ _ (measurableSet_singleton a)]
+    rfl
 
 end Prob
 
