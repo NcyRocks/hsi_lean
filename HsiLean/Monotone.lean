@@ -372,4 +372,130 @@ theorem meas_stage {P : List Bool → Prop} {S : ℕ → List Bool → Prop}
       _ ≤ dyadic (cover (S T) T) T := cover_dyadic_mono (hS T) (le_max_right _ _)
       _ ≤ _ := le_iSup (fun t => dyadic (cover (S t) t) t) T
 
+/-! ### Splitting a measure along a prefix-free code -/
+
+/-- `q` is `p` followed by a string satisfying `P`. -/
+def Shift (p : List Bool) (P : List Bool → Prop) (q : List Bool) : Prop :=
+  ∃ s, q = p ++ s ∧ P s
+
+theorem shift_upClosed (p : List Bool) {P : List Bool → Prop} (hP : UpClosed P) :
+    UpClosed (Shift p P) := by
+  rintro q b ⟨s, rfl, hs⟩
+  exact ⟨s ++ [b], by simp, hP s b hs⟩
+
+open Classical in
+theorem cover_shift (p : List Bool) (P : List Bool → Prop) (m : ℕ) :
+    cover (Shift p P) (p.length + m) = cover P m := by
+  unfold cover
+  have : (strs (p.length + m)).filter (Shift p P) = ((strs m).filter P).image (p ++ ·) := by
+    ext q
+    simp only [Finset.mem_filter, Finset.mem_image, mem_strs, Shift]
+    constructor
+    · rintro ⟨hl, s, rfl, hs⟩
+      exact ⟨s, ⟨by simpa using hl, hs⟩, rfl⟩
+    · rintro ⟨s, ⟨hl, hs⟩, rfl⟩
+      exact ⟨by simp [hl], s, rfl, hs⟩
+  rw [this, Finset.card_image_of_injective _ (List.append_right_injective p)]
+
+open Classical in
+theorem cover_shift_of_lt (p : List Bool) (P : List Bool → Prop) {n : ℕ} (h : n < p.length) :
+    cover (Shift p P) n = 0 := by
+  unfold cover
+  rw [Finset.card_eq_zero, Finset.filter_eq_empty_iff]
+  rintro q hq ⟨s, rfl, _⟩
+  rw [mem_strs] at hq
+  simp at hq
+  omega
+
+theorem dyadic_add_exp (k a m : ℕ) : dyadic k (a + m) = (2⁻¹ : ℝ≥0∞) ^ a * dyadic k m := by
+  unfold dyadic
+  have h0 : (2 : ℝ≥0∞) ^ a ≠ 0 := by positivity
+  have ht : (2 : ℝ≥0∞) ^ a ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  rw [pow_add, ← ENNReal.inv_pow, div_eq_mul_inv, div_eq_mul_inv,
+    ENNReal.mul_inv (Or.inl h0) (Or.inl ht)]
+  ring
+
+/-- Prepending a fixed string `p` scales the measure by `2 ^ -|p|`. -/
+theorem meas_shift (p : List Bool) (P : List Bool → Prop) :
+    meas (Shift p P) = (2⁻¹ : ℝ≥0∞) ^ p.length * meas P := by
+  unfold meas
+  rw [ENNReal.mul_iSup]
+  refine le_antisymm (iSup_le fun n => ?_) (iSup_le fun m => ?_)
+  · rcases lt_or_ge n p.length with h | h
+    · rw [cover_shift_of_lt p P h]
+      simp [dyadic]
+    · obtain ⟨m, rfl⟩ := Nat.exists_eq_add_of_le h
+      rw [cover_shift, dyadic_add_exp]
+      exact le_iSup (fun m => (2⁻¹ : ℝ≥0∞) ^ p.length * dyadic (cover P m) m) m
+  · rw [← dyadic_add_exp, ← cover_shift p P m]
+    exact le_iSup (fun n => dyadic (cover (Shift p P) n) n) (p.length + m)
+
+theorem dyadic_finset_sum {ι : Type*} (F : Finset ι) (a : ι → ℕ) (n : ℕ) :
+    ∑ k ∈ F, dyadic (a k) n = dyadic (∑ k ∈ F, a k) n := by
+  unfold dyadic
+  simp only [div_eq_mul_inv]
+  rw [← Finset.sum_mul, Nat.cast_sum]
+
+/-- [UNAPPROVED STATEMENT] The measure of a disjoint union of shifted sets along a
+prefix-free code `I` is the `2 ^ -|I k|`-weighted sum of the measures. With `P k = True`
+this is Kraft's inequality. -/
+theorem meas_prefixCode (I : ℕ → List Bool) (hI : ∀ i j, I i <+: I j → i = j)
+    (P : ℕ → List Bool → Prop) (hP : ∀ k, UpClosed (P k)) :
+    meas (fun q => ∃ k, Shift (I k) (P k) q) =
+      ∑' k, (2⁻¹ : ℝ≥0∞) ^ (I k).length * meas (P k) := by
+  classical
+  simp_rw [← meas_shift]
+  have e1 : ∀ (R : List Bool → Prop) (n : ℕ),
+      cover R n = ∑ q ∈ strs n, if R q then 1 else 0 := by
+    intro R n
+    unfold cover
+    rw [Finset.card_filter]
+  apply le_antisymm
+  · refine iSup_le fun n => ?_
+    have key : (cover (fun q => ∃ k, Shift (I k) (P k) q) n : ℝ≥0∞) ≤
+        ∑' k, (cover (Shift (I k) (P k)) n : ℝ≥0∞) := by
+      simp_rw [e1, Nat.cast_sum]
+      rw [Summable.tsum_finsetSum (fun _ _ => ENNReal.summable)]
+      refine Finset.sum_le_sum fun q _ => ?_
+      split_ifs with h
+      · obtain ⟨k, hk⟩ := h
+        exact le_trans (by simp [hk]) (ENNReal.le_tsum k)
+      · simp
+    calc dyadic (cover (fun q => ∃ k, Shift (I k) (P k) q) n) n
+        ≤ (∑' k, (cover (Shift (I k) (P k)) n : ℝ≥0∞)) / 2 ^ n :=
+          ENNReal.div_le_div_right key _
+      _ = ∑' k, dyadic (cover (Shift (I k) (P k)) n) n := by
+          unfold dyadic
+          simp only [div_eq_mul_inv]
+          rw [ENNReal.tsum_mul_right]
+      _ ≤ ∑' k, meas (Shift (I k) (P k)) :=
+          ENNReal.tsum_le_tsum fun k =>
+            le_iSup (fun n => dyadic (cover (Shift (I k) (P k)) n) n) n
+  · rw [ENNReal.tsum_eq_iSup_sum]
+    refine iSup_le fun F => ?_
+    have hm : ∀ k, Monotone (fun n => dyadic (cover (Shift (I k) (P k)) n) n) :=
+      fun k => cover_dyadic_mono (shift_upClosed (I k) (hP k))
+    change ∑ k ∈ F, (⨆ n, dyadic (cover (Shift (I k) (P k)) n) n) ≤ _
+    rw [ENNReal.finsetSum_iSup_of_monotone hm]
+    refine iSup_mono fun n => ?_
+    rw [dyadic_finset_sum]
+    refine dyadic_mono_num ?_
+    simp_rw [e1]
+    rw [Finset.sum_comm]
+    refine Finset.sum_le_sum fun q _ => ?_
+    have uniq : ∀ k k', Shift (I k) (P k) q → Shift (I k') (P k') q → k = k' := by
+      rintro k k' ⟨s, hs, _⟩ ⟨s', hs', _⟩
+      have h1 : I k <+: q := hs ▸ List.prefix_append _ _
+      have h2 : I k' <+: q := hs' ▸ List.prefix_append _ _
+      rcases List.prefix_or_prefix_of_prefix h1 h2 with h | h
+      · exact hI _ _ h
+      · exact (hI _ _ h).symm
+    by_cases hex : ∃ k ∈ F, Shift (I k) (P k) q
+    · obtain ⟨k0, hk0, hq0⟩ := hex
+      rw [Finset.sum_eq_single_of_mem k0 hk0
+        (fun k _ hne => if_neg fun hk => hne (uniq k k0 hk hq0))]
+      rw [if_pos hq0, if_pos ⟨k0, hq0⟩]
+    · rw [Finset.sum_eq_zero fun k hk => if_neg fun h => hex ⟨k, hk, h⟩]
+      exact Nat.zero_le _
+
 end HsiLean.Monotone
