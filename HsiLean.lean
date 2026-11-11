@@ -7,3 +7,5 @@ import HsiLean.RateCounterexample
 import HsiLean.HsiRate
 import HsiLean.HsiRateLength
 import HsiLean.HsiRateStop
+import HsiLean.Monotone
+import HsiLean.WshEquiv
