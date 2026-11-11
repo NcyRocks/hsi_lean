@@ -323,20 +323,53 @@ enumerates the pairs of every `V k`. -/
 def UniformlyCE (V : ℕ → Machine) : Prop :=
   ∃ G : ℕ → ℕ → Option Pair, Computable₂ G ∧ ∀ k a, a ∈ (V k).pairs ↔ ∃ n, G k n = some a
 
-/-- [UNAPPROVED STATEMENT] WSH Lemma 6 (⇒), uniform version. -/
-theorem sm_uniformlyEnumerable {V : ℕ → Machine} (hV : UniformlyCE V) :
-    UniformlyEnumerable (fun k => (V k).sm) := sorry
+/-! ### Counting by numeric value, and measures of staged unions -/
 
-/-- [UNAPPROVED STATEMENT] WSH Lemma 6 (⇒): `λ_T` is enumerable. -/
-theorem sm_enumerable (M : Machine) : M.sm.Enumerable := sorry
+open Classical in
+theorem cover_eq_card_range {P : List Bool → Prop} {R : ℕ → Prop} (n : ℕ)
+    (h : ∀ q : List Bool, q.length = n → (P q ↔ R (val q))) :
+    cover P n = ((Finset.range (2 ^ n)).filter R).card := by
+  unfold cover
+  refine Finset.card_bij (fun q _ => val q) ?_ ?_ ?_
+  · intro q hq
+    simp only [Finset.mem_filter, mem_strs] at hq
+    simp only [Finset.mem_filter, Finset.mem_range]
+    exact ⟨hq.1 ▸ val_lt q, (h q hq.1).mp hq.2⟩
+  · intro q hq q' hq' hv
+    simp only [Finset.mem_filter, mem_strs] at hq hq'
+    exact val_inj (hq.1.trans hq'.1.symm) hv
+  · intro v hv
+    simp only [Finset.mem_filter, Finset.mem_range] at hv
+    obtain ⟨q, hq, rfl⟩ := exists_val_eq n v hv.1
+    exact ⟨q, by simp only [Finset.mem_filter, mem_strs]; exact ⟨hq, (h q hq).mpr hv.2⟩, rfl⟩
 
-/-- [UNAPPROVED STATEMENT] An effective enumeration of ALL monotone machines. -/
-noncomputable def enumMachine : ℕ → Machine := sorry
-
-/-- [UNAPPROVED STATEMENT] The enumeration is effective. -/
-theorem enumMachine_uniformlyCE : UniformlyCE enumMachine := sorry
-
-/-- [UNAPPROVED STATEMENT] Every machine is listed. -/
-theorem enumMachine_complete (M : Machine) : ∃ e, enumMachine e = M := sorry
+/-- If `P` is the increasing union of extension-closed stages `S t`, its measure is the
+supremum of the level-`t` counts of the stage-`t` sets. -/
+theorem meas_stage {P : List Bool → Prop} {S : ℕ → List Bool → Prop}
+    (hS : ∀ t, UpClosed (S t)) (hmono : ∀ s t, s ≤ t → ∀ q, S s q → S t q)
+    (hP : ∀ q, P q ↔ ∃ t, S t q) :
+    Monotone (fun t => dyadic (cover (S t) t) t) ∧ ⨆ t, dyadic (cover (S t) t) t = meas P := by
+  have hm : Monotone (fun t => dyadic (cover (S t) t) t) :=
+    monotone_nat_of_le_succ fun t =>
+      (dyadic_le_succ (cover_double_le (hS t) t) t).trans
+        (dyadic_mono_num (cover_mono (hmono t (t + 1) (Nat.le_succ t)) (t + 1)))
+  refine ⟨hm, le_antisymm (iSup_le fun t => ?_) (iSup_le fun n => ?_)⟩
+  · exact (dyadic_mono_num (cover_mono (fun q hq => (hP q).mpr ⟨t, hq⟩) t)).trans
+      (le_iSup (fun n => dyadic (cover P n) n) t)
+  · classical
+    let f : List Bool → ℕ := fun q => if h : P q then Classical.choose ((hP q).mp h) else 0
+    let T := max ((strs n).sup f) n
+    have h1 : cover P n ≤ cover (S T) n := by
+      unfold cover
+      refine Finset.card_le_card fun q hq => ?_
+      simp only [Finset.mem_filter] at hq ⊢
+      refine ⟨hq.1, ?_⟩
+      have hc : S (f q) q := by
+        simp only [f, dif_pos hq.2]
+        exact Classical.choose_spec ((hP q).mp hq.2)
+      exact hmono _ _ ((Finset.le_sup hq.1).trans (le_max_left _ _)) q hc
+    calc dyadic (cover P n) n ≤ dyadic (cover (S T) n) n := dyadic_mono_num h1
+      _ ≤ dyadic (cover (S T) T) T := cover_dyadic_mono (hS T) (le_max_right _ _)
+      _ ≤ _ := le_iSup (fun t => dyadic (cover (S t) t) t) T
 
 end HsiLean.Monotone

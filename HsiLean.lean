@@ -8,5 +8,6 @@ import HsiLean.HsiRate
 import HsiLean.HsiRateLength
 import HsiLean.HsiRateStop
 import HsiLean.Monotone
+import HsiLean.MonotoneCE
 import HsiLean.Levin
 import HsiLean.WshEquiv

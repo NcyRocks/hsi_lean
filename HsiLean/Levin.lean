@@ -1,5 +1,5 @@
 -- ⚠️ UNAPPROVED: every statement in this file was drafted by Claude (Fable 5.2) on 2026-11-11 and has NOT been reviewed by Nathan.
-import HsiLean.Monotone
+import HsiLean.MonotoneCE
 
 /-!
 # WSH Lemma 6 (⇐): Levin's construction
