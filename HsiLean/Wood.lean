@@ -1139,4 +1139,80 @@ theorem mixtureClass_eq_universalMixtures'
     MixtureClass ν = {ξ | IsUniversalMixture ξ} :=
   mixtureClass_eq_universalMixtures ν woodInterface hν_enum hν_univ
 
+/-! ### Staged approximants, exposed for `Levin.lean`
+
+Added 2026-11-11 (sixth run), UNAPPROVED statements; nothing above this line was changed.
+The staged approximants built in this file are private, so this lemma packages what Levin's
+construction needs: every enumerable semimeasure has computable level-`t` numerators that
+form a semimeasure at every stage and at least double from one stage to the next. -/
+
+theorem le_of_dyadic_le {a b n : ℕ} (h : dyadic a n ≤ dyadic b n) : a ≤ b := by
+  unfold dyadic at h
+  have h0 : (2 : ℝ≥0∞) ^ n ≠ 0 := by positivity
+  have ht : (2 : ℝ≥0∞) ^ n ≠ ⊤ := ENNReal.pow_ne_top (by norm_num)
+  rw [ENNReal.div_le_iff h0 ht, ENNReal.div_mul_cancel h0 ht] at h
+  exact_mod_cast h
+
+/-- [UNAPPROVED STATEMENT] Every enumerable semimeasure has staged approximants `N t x`
+(numerators at level `t`): primitive recursive, a semimeasure at every stage, at least
+doubling from stage to stage, with supremum `μ`. -/
+theorem exists_stageApprox (μ : Semimeasure) (hμ : μ.Enumerable) :
+    ∃ N : ℕ → List Bool → ℕ,
+      Primrec (fun p : ℕ × List Bool => N p.1 p.2) ∧
+      (∀ t, N t [] ≤ 2 ^ t) ∧
+      (∀ t x, N t (x ++ [false]) + N t (x ++ [true]) ≤ N t x) ∧
+      (∀ t x, 2 * N t x ≤ N (t + 1) x) ∧
+      (∀ x, ⨆ t, dyadic (N t x) t = μ x) := by
+  obtain ⟨e, he⟩ := enum_complete μ hμ
+  have heq : ∀ t x,
+      dyadic (gApproxComp e (freezeStageNat e t) x * 2 ^ (t - freezeStageNat e t)) t
+        = GApprox e t x := by
+    intro t x
+    unfold GApprox
+    rw [gApproxComp_eq, freezeStageNat_eq]
+    exact dyadic_mul_shift _ _ _ (freezeStage_le_self e t)
+  have hprim := enumApprox_primrec.comp
+    (Primrec.pair (Primrec.pair (Primrec.const e) (Primrec.snd (α := ℕ) (β := List Bool)))
+      Primrec.fst)
+  obtain ⟨N, hN⟩ : ∃ N : ℕ → List Bool → ℕ, ∀ t x,
+      N t x = gApproxComp e (freezeStageNat e t) x * 2 ^ (t - freezeStageNat e t) :=
+    ⟨_, fun _ _ => rfl⟩
+  have hN' : ∀ t x, N t x = gApprox e (freezeStage e t) x * 2 ^ (t - freezeStage e t) := by
+    intro t x
+    rw [hN, gApproxComp_eq, freezeStageNat_eq]
+  have hroot : ∀ s, gApprox e (freezeStage e s) [] ≤ 2 ^ freezeStage e s := by
+    intro s
+    exact_mod_cast freezeStage_safe e s
+  have hext : ∀ s x, gApprox e s (x ++ [false]) + gApprox e s (x ++ [true]) ≤ gApprox e s x :=
+    fun s x => gApprox_extend_le e s x
+  have hfs : ∀ t, freezeStage e t ≤ t := freezeStage_le_self e
+  have hmono : ∀ t x, dyadic (N t x) t ≤ dyadic (N (t + 1) x) (t + 1) := by
+    intro t x
+    rw [hN, hN, heq, heq]
+    exact GApprox_mono' e x (Nat.le_succ t)
+  have hsup : ∀ x, ⨆ t, dyadic (N t x) t = μ x := by
+    intro x
+    simp_rw [hN, heq]
+    rw [← he]
+    rfl
+  have hNprim : Primrec (fun p : ℕ × List Bool => N p.1 p.2) :=
+    hprim.of_eq fun p => (hN p.1 p.2).symm
+  clear hN heq hprim
+  generalize gApprox e = g at hN' hroot hext
+  generalize freezeStage e = fs at hN' hroot hfs
+  refine ⟨N, hNprim, ?_, ?_, ?_, hsup⟩
+  · intro t
+    rw [hN']
+    have hle := hfs t
+    calc g (fs t) [] * 2 ^ (t - fs t)
+        ≤ 2 ^ fs t * 2 ^ (t - fs t) := Nat.mul_le_mul_right _ (hroot t)
+      _ = 2 ^ t := by rw [← pow_add]; congr 1; omega
+  · intro t x
+    rw [hN', hN', hN', ← add_mul]
+    exact Nat.mul_le_mul_right _ (hext _ _)
+  · intro t x
+    have h1 := hmono t x
+    rw [← dyadic_double_succ] at h1
+    exact le_of_dyadic_le h1
+
 end HsiLean.Wood
