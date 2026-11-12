@@ -2552,4 +2552,320 @@ theorem thompson_gap_tendsto (hC : OptClass r γ ν w act i₀) :
 
 end StochThompson
 
+/-! ## (O1): without a uniform gap — a pair of environments no policy can serve
+
+The note's (O1) asks whether, without a uniform gap, some policy has vanishing Cesàro mistake
+rate in every computable environment. For STOCHASTIC environments the answer is no, by the
+following pair of time-varying two-armed bandits (percept = reward bit; `t` is the time):
+
+* in both, the safe arm `true` pays with probability `p_t / 2`, where `p_t = 2^{-(t+2)}`;
+* in `μ` the other arm `false` never pays; in `ν` it pays with probability `p_t`.
+
+So `true` is the unique optimal action in `μ` at every history and `false` is the unique optimal
+action in `ν` at every history, with gaps `(1-γ) p_t / 2 → 0`. But `Σ_t p_t = 1/2`: every history
+that `μ` can produce is at least half as likely under `ν`, whatever the policy (`lik_o1`). Hence
+for EVERY policy and EVERY time, `P_μ(mistake at t) + 2 P_ν(mistake at t) ≥ 1` (`O1_no_policy`):
+the two mistake probabilities cannot both be small, at any time, so neither can both Cesàro
+means. For Thompson sampling on the class `{μ, ν}` the log loss in `μ` is at least `ln(3/2)` at
+every time (`thompson_needs_uniform_gap`): the uniform gap in `thompson_O2_stochastic` cannot be
+dropped, while `thompson_gap_tendsto` still holds here.
+
+Not formalised: that these two environments are computable (their percept probabilities are the
+dyadic rationals `2^{-(t+2)}`, `2^{-(t+3)}`). Deterministic environments are not covered. -/
+
+section O1
+
+/-- If the percept distribution of `ρ` depends on the history only through its length, so does
+the optimal `n`-step value. -/
+lemma Vn_congr_length [Nonempty A] {r : E → ℝ} {γ : ℝ} {ρ : Env A E}
+    (hρ : ∀ h h' : Hist A E, h.length = h'.length → ρ h = ρ h') (n : ℕ) :
+    ∀ h h' : Hist A E, h.length = h'.length → Vn r γ ρ n h = Vn r γ ρ n h' := by
+  induction n with
+  | zero => intro h h' _; rfl
+  | succ n ih =>
+    intro h h' hl
+    simp only [Vn]
+    have e : qval r γ ρ (Vn r γ ρ n) h = qval r γ ρ (Vn r γ ρ n) h' := by
+      funext a
+      unfold qval
+      refine Finset.sum_congr rfl fun e _ => ?_
+      rw [hρ h h' hl, ih ((a, e) :: h) ((a, e) :: h') (by simp [hl])]
+    rw [e]
+
+lemma Vstar_congr_length [Nonempty A] {r : E → ℝ} {γ : ℝ} {ρ : Env A E}
+    (hρ : ∀ h h' : Hist A E, h.length = h'.length → ρ h = ρ h') (h h' : Hist A E)
+    (hl : h.length = h'.length) : Vstar r γ ρ h = Vstar r γ ρ h' := by
+  unfold Vstar
+  congr 1
+  funext n
+  exact Vn_congr_length hρ n h h' hl
+
+/-- In a time-varying bandit, `Q*` is the immediate expected reward plus a term that does not
+depend on the action. -/
+lemma Qstar_tv [Nonempty A] {r : E → ℝ} {γ : ℝ} {ρ : Env A E}
+    (hρ : ∀ h h' : Hist A E, h.length = h'.length → ρ h = ρ h')
+    (hmeas : ∀ h a, ∑ e, ρ h a e = 1) (a₀ : A) (e₀ : E) (h : Hist A E) (a : A) :
+    Qstar r γ ρ h a =
+      (1 - γ) * ∑ e, ρ h a e * r e + γ * Vstar r γ ρ ((a₀, e₀) :: h) := by
+  unfold Qstar qval
+  have e0 : ∀ e, Vstar r γ ρ ((a, e) :: h) = Vstar r γ ρ ((a₀, e₀) :: h) := fun e =>
+    Vstar_congr_length hρ _ _ (by simp)
+  simp_rw [e0]
+  have e1 : ∀ e, ρ h a e * ((1 - γ) * r e + γ * Vstar r γ ρ ((a₀, e₀) :: h)) =
+      (1 - γ) * (ρ h a e * r e) + ρ h a e * (γ * Vstar r γ ρ ((a₀, e₀) :: h)) := fun e => by
+    ring
+  simp_rw [e1]
+  rw [Finset.sum_add_distrib, ← Finset.mul_sum, ← Finset.sum_mul, hmeas, one_mul]
+
+variable {γ : ℝ}
+
+/-- `p_t = 2^{-(t+2)}`; `Σ_t p_t = 1/2`. -/
+noncomputable def pT (t : ℕ) : ℝ := (1 / 2) ^ (t + 2)
+
+lemma pT_pos (t : ℕ) : 0 < pT t := by unfold pT; positivity
+
+lemma pT_le (t : ℕ) : pT t ≤ 1 / 4 := by
+  unfold pT
+  calc (1 / 2 : ℝ) ^ (t + 2) ≤ (1 / 2) ^ 2 :=
+        pow_le_pow_of_le_one (by norm_num) (by norm_num) (by omega)
+    _ = 1 / 4 := by norm_num
+
+/-- The Bernoulli distribution on the reward bit. -/
+noncomputable def bern (q : ℝ) (e : Bool) : ℝ := if e then q else 1 - q
+
+/-- [UNAPPROVED STATEMENT] The time-varying two-armed bandit: at time `t` (the length of the
+history) arm `true` pays with probability `p_t / 2` and arm `false` with probability `q t`. -/
+noncomputable def tvEnv (q : ℕ → ℝ) : Env Bool Bool := fun h a e =>
+  if a then bern (pT h.length / 2) e else bern (q h.length) e
+
+lemma tvEnv_true (q : ℕ → ℝ) (h : Hist Bool Bool) (e : Bool) :
+    tvEnv q h true e = bern (pT h.length / 2) e := by simp [tvEnv]
+
+lemma tvEnv_false (q : ℕ → ℝ) (h : Hist Bool Bool) (e : Bool) :
+    tvEnv q h false e = bern (q h.length) e := by simp [tvEnv]
+
+lemma bern_sum (q : ℝ) : ∑ e, bern q e = 1 := by
+  rw [Fintype.sum_bool]
+  simp [bern]
+
+lemma tvEnv_meas (q : ℕ → ℝ) (h : Hist Bool Bool) (a : Bool) : ∑ e, tvEnv q h a e = 1 := by
+  cases a
+  · simp_rw [tvEnv_false]; exact bern_sum _
+  · simp_rw [tvEnv_true]; exact bern_sum _
+
+lemma tvEnv_semi {q : ℕ → ℝ} (hq0 : ∀ t, 0 ≤ q t) (hq1 : ∀ t, q t ≤ 1) :
+    IsSemiEnv (tvEnv q) where
+  nonneg h a e := by
+    have h1 := pT_pos h.length
+    have h2 := pT_le h.length
+    have h3 := hq0 h.length
+    have h4 := hq1 h.length
+    cases a <;> cases e <;> simp [tvEnv, bern] <;> linarith
+  sum_le h a := (tvEnv_meas q h a).le
+
+lemma tvEnv_length (q : ℕ → ℝ) (h h' : Hist Bool Bool) (hl : h.length = h'.length) :
+    tvEnv q h = tvEnv q h' := by
+  funext a e
+  simp [tvEnv, hl]
+
+lemma tv_Qstar_true (q : ℕ → ℝ) (h : Hist Bool Bool) :
+    Qstar rBit γ (tvEnv q) h true =
+      (1 - γ) * (pT h.length / 2) + γ * Vstar rBit γ (tvEnv q) ((true, true) :: h) := by
+  rw [Qstar_tv (tvEnv_length q) (tvEnv_meas q) true true, Fintype.sum_bool]
+  simp [tvEnv, bern, rBit]
+
+lemma tv_Qstar_false (q : ℕ → ℝ) (h : Hist Bool Bool) :
+    Qstar rBit γ (tvEnv q) h false =
+      (1 - γ) * q h.length + γ * Vstar rBit γ (tvEnv q) ((true, true) :: h) := by
+  rw [Qstar_tv (tvEnv_length q) (tvEnv_meas q) true true, Fintype.sum_bool]
+  simp [tvEnv, bern, rBit]
+
+/-- [UNAPPROVED STATEMENT] In `μ = tvEnv 0` the arm `true` is strictly optimal at every
+history. -/
+theorem o1_mu_opt (h1 : γ < 1) (h : Hist Bool Bool) :
+    Qstar rBit γ (tvEnv fun _ => 0) h false < Qstar rBit γ (tvEnv fun _ => 0) h true := by
+  rw [tv_Qstar_true, tv_Qstar_false]
+  have := pT_pos h.length
+  nlinarith [mul_pos (sub_pos.2 h1) this]
+
+/-- [UNAPPROVED STATEMENT] In `ν = tvEnv p` the arm `false` is strictly optimal at every
+history. -/
+theorem o1_nu_opt (h1 : γ < 1) (h : Hist Bool Bool) :
+    Qstar rBit γ (tvEnv pT) h true < Qstar rBit γ (tvEnv pT) h false := by
+  rw [tv_Qstar_true, tv_Qstar_false]
+  have := pT_pos h.length
+  nlinarith [mul_pos (sub_pos.2 h1) this]
+
+/-- Every history is at least half as likely under `ν` as under `μ`, whatever the actions. -/
+lemma lik_o1 (h : Hist Bool Bool) :
+    (1 / 2 + (1 / 2) ^ (h.length + 1)) * lik (tvEnv fun _ => 0) h ≤ lik (tvEnv pT) h := by
+  induction h with
+  | nil => simp [lik]; norm_num
+  | cons x h ih =>
+    obtain ⟨a, e⟩ := x
+    simp only [lik, List.length_cons]
+    have hLμ := lik_nonneg (tvEnv_semi (q := fun _ => 0) (fun _ => le_rfl) (fun _ => zero_le_one)) h
+    have hLν := lik_nonneg (tvEnv_semi (q := pT) (fun t => (pT_pos t).le)
+      (fun t => (pT_le t).trans (by norm_num))) h
+    have hp := pT_pos h.length
+    have hp4 := pT_le h.length
+    have hc : (1 / 2 : ℝ) + (1 / 2) ^ (h.length + 1 + 1) =
+        1 / 2 + (1 / 2) ^ (h.length + 1) - pT h.length := by
+      unfold pT
+      ring
+    have hc1 : (1 / 2 : ℝ) + (1 / 2) ^ (h.length + 1) ≤ 1 := by
+      have : (1 / 2 : ℝ) ^ (h.length + 1) ≤ (1 / 2) ^ 1 :=
+        pow_le_pow_of_le_one (by norm_num) (by norm_num) (by omega)
+      linarith
+    have hc0 : (0 : ℝ) ≤ 1 / 2 + (1 / 2) ^ (h.length + 1) := by positivity
+    rw [hc]
+    cases a
+    · cases e
+      · -- arm `false`, no reward: `μ` gives 1, `ν` gives `1 - p_t`
+        rw [tvEnv_false, tvEnv_false]
+        simp only [bern, Bool.false_eq_true, if_false, sub_zero, mul_one]
+        nlinarith [mul_nonneg hLμ hp.le, mul_nonneg (mul_nonneg hLμ hp.le) (sub_nonneg.2 hc1)]
+      · -- arm `false`, reward: impossible under `μ`
+        rw [tvEnv_false, tvEnv_false]
+        simp only [bern, if_true, mul_zero]
+        exact mul_nonneg hLν hp.le
+    · -- arm `true`: the same factor in both
+      rw [tvEnv_true, tvEnv_true]
+      have hb : 0 ≤ bern (pT h.length / 2) e := by
+        unfold bern; split_ifs <;> linarith
+      nlinarith [mul_nonneg (mul_nonneg hLμ hp.le) hb, mul_le_mul_of_nonneg_right ih hb]
+
+/-- [UNAPPROVED STATEMENT] **(O1), stochastic environments: no policy has small mistake
+probability in both `μ` and `ν`, at any time.** `μ = tvEnv 0` and `ν = tvEnv p` are measures in
+which the optimal action is unique at every history (`o1_mu_opt`: `true` in `μ`; `o1_nu_opt`:
+`false` in `ν`). For every policy `π` and every time `t`,
+
+  `P^π_μ(a_t ≠ optimal for μ) + 2 · P^π_ν(a_t ≠ optimal for ν) ≥ 1`.
+
+Summing over `t ≤ n` and dividing by `n`: the two Cesàro mistake rates cannot both tend to
+zero. -/
+theorem O1_no_policy (π : Policy Bool Bool) (hπ : IsPolicy π) (t : ℕ) :
+    1 ≤ Ex π (tvEnv fun _ => 0) t (fun h => π h false) +
+      2 * Ex π (tvEnv pT) t (fun h => π h true) := by
+  have hsum : Ex π (tvEnv fun _ => 0) t (fun h => π h false) +
+      Ex π (tvEnv fun _ => 0) t (fun h => π h true) = 1 := by
+    have h1 := Ex_lin π (tvEnv fun _ => 0) 1 t (fun h => π h false) (fun h => π h true)
+    simp only [one_mul] at h1
+    rw [← h1]
+    have e : (fun h => π h false + π h true) = fun _ => (1 : ℝ) := by
+      funext h
+      have := hπ.sum_eq h
+      rw [Fintype.sum_bool] at this
+      linarith
+    rw [e]
+    exact Ex_const hπ (tvEnv_meas _) t 1
+  have hdom : 1 / 2 * Ex π (tvEnv fun _ => 0) t (fun h => π h true) ≤
+      Ex π (tvEnv pT) t (fun h => π h true) := by
+    rw [Ex_eq_S0, Ex_eq_S0, ← S0_smul]
+    refine S0_mono hπ t fun h => ?_
+    have h1 := lik_o1 h
+    have h2 := hπ.nonneg h true
+    have h3 := lik_nonneg (tvEnv_semi (q := fun _ => 0) (fun _ => le_rfl)
+      (fun _ => zero_le_one)) h
+    have h4 : (0 : ℝ) ≤ (1 / 2) ^ (h.length + 1) := by positivity
+    nlinarith [mul_nonneg h4 h3, mul_nonneg (mul_nonneg h4 h3) h2,
+      mul_le_mul_of_nonneg_right h1 h2]
+  linarith
+
+/-- The class `{μ, ν}` for Thompson sampling: member `0` is `μ`, every other member is `ν`. -/
+noncomputable def o1ν (i : ℕ) : Env Bool Bool := tvEnv (if i = 0 then fun _ => 0 else pT)
+
+lemma o1ν_zero : o1ν 0 = tvEnv fun _ => 0 := by simp [o1ν]
+
+lemma o1ν_ne {i : ℕ} (hi : i ≠ 0) : o1ν i = tvEnv pT := by simp [o1ν, hi]
+
+lemma o1ν_semi (i : ℕ) : IsSemiEnv (o1ν i) := by
+  by_cases hi : i = 0
+  · subst hi
+    rw [o1ν_zero]
+    exact tvEnv_semi (fun _ => le_rfl) (fun _ => zero_le_one)
+  · rw [o1ν_ne hi]
+    exact tvEnv_semi (fun t => (pT_pos t).le) (fun t => (pT_le t).trans (by norm_num))
+
+/-- [UNAPPROVED STATEMENT] The class `{μ, ν}` with prior `1/2, 1/2` and designated policies
+"always `true`" for `μ`, "always `false`" for `ν` satisfies `OptClass` (every hypothesis of
+`thompson_O2_stochastic` except the uniform gap). -/
+theorem o1_optClass (h0 : 0 ≤ γ) (h1 : γ < 1) : OptClass rBit γ o1ν exw exAct 0 where
+  disc := rBit_disc h0 h1
+  semi := o1ν_semi
+  w_nonneg i := by unfold exw; split_ifs <;> norm_num
+  w_summable := exw_summable
+  w_le := exw_tsum.le
+  opt i h b := by
+    by_cases hi : i = 0
+    · subst hi
+      have := (o1_mu_opt h1 h).le
+      rw [o1ν_zero]
+      cases b
+      · simpa [exAct] using this
+      · simp [exAct]
+    · have := (o1_nu_opt h1 h).le
+      rw [o1ν_ne hi]
+      cases b
+      · simp [exAct, hi]
+      · simpa [exAct, hi] using this
+  truth_pos := by norm_num [exw]
+  truth_meas h a := by rw [o1ν_zero]; exact tvEnv_meas _ h a
+
+/-- [UNAPPROVED STATEMENT] **The uniform gap in `thompson_O2_stochastic` cannot be dropped.** In
+the class `{μ, ν}` (which satisfies `OptClass`, and in which the truth `μ` has a unique optimal
+action at every history, with gap `(1-γ) p_t / 2 → 0`), per-step Thompson sampling's expected
+log loss on the optimal action is at least `ln(3/2)` at EVERY time. -/
+theorem thompson_needs_uniform_gap (h0 : 0 ≤ γ) (h1 : γ < 1) (t : ℕ) :
+    log (3 / 2) ≤ Ex (piT o1ν exw exAct) (o1ν 0) t (loss o1ν exw exAct 0) := by
+  have hO := o1_optClass h0 h1
+  have hπ := hO.piP_isPolicy
+  rw [hO.Ex_piT_eq]
+  have key : ∀ h, lik (o1ν 0) h ≠ 0 → log (3 / 2) ≤ loss o1ν exw exAct 0 h := by
+    intro h hl
+    have hLμ : 0 < lik (o1ν 0) h := (lik_nonneg (o1ν_semi 0) h).lt_of_ne' hl
+    have hLν := lik_nonneg (o1ν_semi 1) h
+    have hdom : 1 / 2 * lik (o1ν 0) h ≤ lik (o1ν 1) h := by
+      have h1 := lik_o1 h
+      rw [o1ν_zero, o1ν_ne one_ne_zero]
+      have h4 : (0 : ℝ) ≤ (1 / 2) ^ (h.length + 1) := by positivity
+      have h3 := lik_nonneg (tvEnv_semi (q := fun _ => 0) (fun _ => le_rfl)
+        (fun _ => zero_le_one)) h
+      nlinarith [mul_nonneg h4 h3]
+    have hnum : ∀ i, exw i * lik (o1ν i) h * detPol (exAct i) h (exAct 0 h) =
+        if i = 0 then 1 / 2 * lik (o1ν 0) h else 0 := by
+      intro i
+      by_cases hi : i = 0
+      · subst hi
+        simp [exw, detPol, exAct]
+      · simp [hi, detPol, exAct]
+    have hxi : xi o1ν exw h = 1 / 2 * lik (o1ν 0) h + 1 / 2 * lik (o1ν 1) h := by
+      unfold xi
+      rw [tsum_eq_sum (s := Finset.range 2) fun i hi => by
+        simp only [Finset.mem_range] at hi
+        simp [exw, hi]]
+      simp [Finset.sum_range_succ, exw]
+    have hT : piT o1ν exw exAct h (exAct 0 h) =
+        1 / 2 * lik (o1ν 0) h / (1 / 2 * lik (o1ν 0) h + 1 / 2 * lik (o1ν 1) h) := by
+      unfold piT thompson
+      rw [hxi, tsum_congr hnum, tsum_ite_eq]
+    have hden : 0 < 1 / 2 * lik (o1ν 0) h + 1 / 2 * lik (o1ν 1) h := by linarith
+    have hTpos : 0 < piT o1ν exw exAct h (exAct 0 h) := by
+      rw [hT]
+      exact div_pos (by linarith) hden
+    have hTle : piT o1ν exw exAct h (exAct 0 h) ≤ 2 / 3 := by
+      rw [hT, div_le_iff₀ hden]
+      linarith
+    unfold loss
+    have h5 := Real.log_le_log hTpos hTle
+    have h6 : log (3 / 2 : ℝ) = -log (2 / 3) := by
+      rw [← Real.log_inv]
+      norm_num
+    linarith
+  have := Ex_mono' hπ (o1ν_semi 0) t (f := fun _ => log (3 / 2))
+    (g := loss o1ν exw exAct 0) key
+  rwa [Ex_const hπ hO.truth_meas] at this
+
+end O1
+
 end HsiLean.ThompsonO2
