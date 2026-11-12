@@ -1067,4 +1067,167 @@ theorem example_loss_pos : loss exν exw exAct 0 [] = log 2 := by
 
 end Example
 
+/-! ## The stochastic case (Theorem C of the draft)
+
+Nothing below assumes determinism of the environments. The designated policies are still
+deterministic. -/
+
+/-! ### Values along a policy, and paths -/
+
+section StochValues
+
+variable [Nonempty A] {r : E → ℝ} {γ : ℝ} {ρ σ : Env A E} {p : Hist A E → A}
+
+/-- The truncated `n`-step return of the deterministic policy `p` in `ρ` from `h`. -/
+noncomputable def Wn (r : E → ℝ) (γ : ℝ) (ρ : Env A E) (p : Hist A E → A) :
+    ℕ → Hist A E → ℝ
+  | 0, _ => 0
+  | n + 1, h => qval r γ ρ (Wn r γ ρ p n) h (p h)
+
+lemma Wn_le_Vn (hd : IsDisc r γ) (hρ : IsSemiEnv ρ) (n : ℕ) (h : Hist A E) :
+    Wn r γ ρ p n h ≤ Vn r γ ρ n h := by
+  induction n generalizing h with
+  | zero => simp [Wn, Vn]
+  | succ n ih =>
+    simp only [Wn, Vn]
+    exact (qval_mono hd hρ ih h (p h)).trans
+      (Finset.le_sup' (qval r γ ρ (Vn r γ ρ n) h) (Finset.mem_univ _))
+
+/-- Stochastic Lemma 1, lower half. -/
+lemma Wn_le_Qstar (hd : IsDisc r γ) (hρ : IsSemiEnv ρ) (n : ℕ) (h : Hist A E) :
+    Wn r γ ρ p n h ≤ Qstar r γ ρ h (p h) := by
+  cases n with
+  | zero => simpa [Wn] using (Qstar_bounds hd hρ h (p h)).1
+  | succ n =>
+    simp only [Wn]
+    exact qval_mono hd hρ (fun h' => (Wn_le_Vn hd hρ n h').trans (Vn_le_Vstar hd hρ n h')) h _
+
+lemma qval_add_const (hρ : IsSemiEnv ρ) (hγ : 0 ≤ γ) (V : Hist A E → ℝ) {c : ℝ} (hc : 0 ≤ c)
+    (h : Hist A E) (a : A) :
+    qval r γ ρ (fun h => V h + c) h a ≤ qval r γ ρ V h a + γ * c := by
+  unfold qval
+  have e : ∀ e, ρ h a e * ((1 - γ) * r e + γ * (V ((a, e) :: h) + c)) =
+      ρ h a e * ((1 - γ) * r e + γ * V ((a, e) :: h)) + ρ h a e * (γ * c) := fun e => by ring
+  simp_rw [e]
+  rw [Finset.sum_add_distrib, ← Finset.sum_mul]
+  have := mul_le_mul_of_nonneg_right (hρ.sum_le h a) (mul_nonneg hγ hc)
+  linarith
+
+/-- Stochastic Lemma 1, upper half. -/
+lemma Qstar_le_Wn (hd : IsDisc r γ) (hρ : IsSemiEnv ρ) (hopt : ∀ h, IsOptAct r γ ρ h (p h))
+    (n : ℕ) (h : Hist A E) : Qstar r γ ρ h (p h) ≤ Wn r γ ρ p n h + γ ^ n := by
+  induction n generalizing h with
+  | zero => simpa [Wn] using (Qstar_bounds hd hρ h (p h)).2
+  | succ n ih =>
+    simp only [Wn]
+    have h1 : Qstar r γ ρ h (p h) ≤ qval r γ ρ (fun h' => Wn r γ ρ p n h' + γ ^ n) h (p h) :=
+      qval_mono hd hρ (fun h' => (Vstar_le_Qstar_of_opt hd hρ (hopt h')).trans (ih h')) h _
+    have h2 := qval_add_const (r := r) hρ hd.γ_nonneg (Wn r γ ρ p n)
+      (pow_nonneg hd.γ_nonneg n) h (p h)
+    rw [pow_succ']
+    linarith
+
+/-- The probability under `ρ` of the percept sequence `es` when `p` is followed from `h`. -/
+noncomputable def plik (ρ : Env A E) (p : Hist A E → A) : Hist A E → List E → ℝ
+  | _, [] => 1
+  | h, e :: es => ρ h (p h) e * plik ρ p ((p h, e) :: h) es
+
+/-- The history after following `p` from `h` and seeing the percepts `es`. -/
+def ext (p : Hist A E → A) : Hist A E → List E → Hist A E
+  | h, [] => h
+  | h, e :: es => ext p ((p h, e) :: h) es
+
+omit [Nonempty A] in
+lemma plik_bounds (hρ : IsSemiEnv ρ) (h : Hist A E) (es : List E) :
+    0 ≤ plik ρ p h es ∧ plik ρ p h es ≤ 1 := by
+  induction es generalizing h with
+  | nil => simp [plik]
+  | cons e es ih =>
+    simp only [plik]
+    exact ⟨mul_nonneg (hρ.nonneg _ _ _) (ih _).1,
+      mul_le_one₀ (env_le_one hρ _ _ _) (ih _).1 (ih _).2⟩
+
+omit [Fintype A] [Fintype E] [Nonempty A] in
+lemma lik_ext (ρ : Env A E) (p : Hist A E → A) (h : Hist A E) (es : List E) :
+    lik ρ (ext p h es) = lik ρ h * plik ρ p h es := by
+  induction es generalizing h with
+  | nil => simp [ext, plik]
+  | cons e es ih =>
+    simp only [ext, plik]
+    rw [ih]
+    simp only [lik]
+    ring
+
+/-- If the `n`-step returns of `p` in `ρ` and `σ`, scaled by `α` and `β`, differ by `c > 0`,
+then some percept sequence of length at most `n` has scaled probabilities differing by
+`c / |E|^n`. -/
+lemma exists_path (hd : IsDisc r γ) (hρ : IsSemiEnv ρ) (hσ : IsSemiEnv σ) (p : Hist A E → A) :
+    ∀ (n : ℕ) (h : Hist A E) (α β c : ℝ), 0 ≤ α → 0 ≤ β → 0 < c →
+      c ≤ α * Wn r γ ρ p n h - β * Wn r γ σ p n h →
+      ∃ es : List E, es.length ≤ n ∧
+        c / (Fintype.card E : ℝ) ^ n ≤ α * plik ρ p h es - β * plik σ p h es := by
+  intro n
+  induction n with
+  | zero =>
+    intro h α β c _ _ hc0 hc
+    simp only [Wn, mul_zero, sub_zero] at hc
+    linarith
+  | succ n ih =>
+    intro h α β c hα hβ hc0 hc
+    simp only [Wn, qval] at hc
+    rcases isEmpty_or_nonempty E with hE | hE
+    · simp at hc
+      linarith
+    have hM1 : (1 : ℝ) ≤ Fintype.card E := by
+      exact_mod_cast Fintype.card_pos
+    have hM : (0 : ℝ) < Fintype.card E := by linarith
+    set M : ℝ := (Fintype.card E : ℝ) with hMdef
+    set bρ : E → ℝ := fun e => (1 - γ) * r e + γ * Wn r γ ρ p n ((p h, e) :: h) with hbρ
+    set bσ : E → ℝ := fun e => (1 - γ) * r e + γ * Wn r γ σ p n ((p h, e) :: h) with hbσ
+    have hsum : α * ∑ e, ρ h (p h) e * bρ e - β * ∑ e, σ h (p h) e * bσ e =
+        ∑ e, (α * (ρ h (p h) e * bρ e) - β * (σ h (p h) e * bσ e)) := by
+      rw [Finset.sum_sub_distrib, Finset.mul_sum, Finset.mul_sum]
+    obtain ⟨e, he⟩ : ∃ e, c / M ≤ α * (ρ h (p h) e * bρ e) - β * (σ h (p h) e * bσ e) := by
+      by_contra hcon
+      simp only [not_exists, not_le] at hcon
+      have hlt : ∑ e, (α * (ρ h (p h) e * bρ e) - β * (σ h (p h) e * bσ e)) <
+          ∑ _e : E, c / M :=
+        Finset.sum_lt_sum_of_nonempty Finset.univ_nonempty fun e _ => hcon e
+      have hconst : ∑ _e : E, c / M = c := by
+        rw [Finset.sum_const, Finset.card_univ, nsmul_eq_mul]
+        change M * (c / M) = c
+        field_simp
+      rw [hconst, ← hsum] at hlt
+      linarith
+    have hcM : 0 < c / M := div_pos hc0 hM
+    have hpow : c / M ^ (n + 1) = c / M / M ^ n := by
+      rw [pow_succ', div_div]
+    by_cases hA : c / M ≤ α * ρ h (p h) e - β * σ h (p h) e
+    · refine ⟨[e], by simp, ?_⟩
+      simp only [plik, mul_one]
+      refine le_trans ?_ hA
+      rw [hpow]
+      exact div_le_self hcM.le (one_le_pow₀ hM1)
+    · have hB : c / M ≤ α * ρ h (p h) e * Wn r γ ρ p n ((p h, e) :: h) -
+          β * σ h (p h) e * Wn r γ σ p n ((p h, e) :: h) := by
+        by_contra hB
+        have hA' := not_le.1 hA
+        have hB' := not_le.1 hB
+        have hrA : r e * (α * ρ h (p h) e - β * σ h (p h) e) < c / M := by
+          rcases le_or_gt 0 (α * ρ h (p h) e - β * σ h (p h) e) with h0 | h0
+          · exact lt_of_le_of_lt (mul_le_of_le_one_left h0 (hd.r_le e)) hA'
+          · exact lt_of_le_of_lt (mul_nonpos_of_nonneg_of_nonpos (hd.r_nonneg e) h0.le) hcM
+        have h1 := mul_lt_mul_of_pos_left hrA (sub_pos.2 hd.γ_lt)
+        have h2 := mul_le_mul_of_nonneg_left hB'.le hd.γ_nonneg
+        simp only [hbρ, hbσ] at he
+        nlinarith
+      obtain ⟨es, hlen, hes⟩ := ih ((p h, e) :: h) (α * ρ h (p h) e) (β * σ h (p h) e) (c / M)
+        (mul_nonneg hα (hρ.nonneg _ _ _)) (mul_nonneg hβ (hσ.nonneg _ _ _)) hcM hB
+      refine ⟨e :: es, by simp; omega, ?_⟩
+      simp only [plik]
+      rw [hpow]
+      linarith
+
+end StochValues
+
 end HsiLean.ThompsonO2
