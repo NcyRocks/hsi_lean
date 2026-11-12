@@ -205,3 +205,21 @@ In the example of the remark above, sampling $0$ and $00$ with probability $\tfr
 % with probability one.
 An item's probability under $\nu$ can be read as (a) $\nu(x)$ given the length $|x|$ (above); (b) the probability that the machine's output is exactly $x$, namely $\nu(x)-\nu(x0)-\nu(x1)$ (Lemma \ref{lm:bijection}); or (c) $\nu(x)$ with items restricted to a prefix-free set (Theorem \ref{thm:hsi-end-to-end}). Each makes Assumption \ref{ass:hsi-rate}(ii) hold; (c) with $A=\mathbb{B}^n$ is (a) with a single length.
 \end{remark}
+
+% ---------------------------------------------------------------------------------------------
+% Added 2026-11-12, seventh run (Claude, Fable 5.2). UNAPPROVED, unverified by Nathan.
+% Lean counterpart: HsiLean/HsiMachines.lean (all statements UNAPPROVED; no sorry):
+% hsi_machines, hsi_machines_enum, Machine.lamSm, mixL_singleton_machines.
+\begin{theorem}[The main claims, about machines]
+\label{thm:hsi-machines}
+Let $\{V_k\}$ be an effective enumeration of monotone machines that contains every UTM, and let $\Eta$ be lower semicomputable with $\Eta(V_k)>0$ for all $k$ and $\sum_k\Eta(V_k)\le 1$. Let $\lambda$ be a distribution on $\mathbb{N}$ and let $x_1,x_2,\dots\in\mathbb{B}^*$ be independent, each with $\Pr(x_i=x)=\lambda(|x|)\,P_{V_\mu}(x)$ for some machine $V_\mu$ of the enumeration. Then
+\begin{enumerate}
+    \item[(a)] there is a UTM $U$ with $P_\Eta(x)=\sum_k\Eta(V_k)\,P_{V_k}(x)=P_U(x)$ for every $x\ne\epsilon$: HSI's prior is a Solomonoff prior (Corollary \ref{cor:um=umum=solind=hsi});
+    \item[(b)] the excess error $e_\nu=-\log_2\bigl(P_{\Eta(\cdot\mid x_{<\nu})}(x_\nu)/P_{V_\mu}(x_\nu)\bigr)$ of the conditioned predictor, items read as content given length, satisfies $E(e_\nu)\ge 0$, $\sum_\nu E(e_\nu)\le-\log_2\Eta(V_\mu)$, at most $-\log_2\Eta(V_\mu)/\varepsilon$ positions have $E(e_\nu)>\varepsilon$, and $E(e_\nu)\to 0$.
+\end{enumerate}
+The enumeration of all monotone machines satisfies the hypotheses, with any machine as $V_\mu$.
+\end{theorem}
+% Notes: (a) is hsi_eq_solomonoff, (b) is hsi_rate_length applied to nu_k := P_{V_k}; nothing
+% new is proved. "Machine" is the abstract model of Monotone.lean (a c.e. consistent set of
+% (program, output) pairs). As before, the sampling hypothesis forces P_{V_mu} to lose no mass
+% at the lengths that occur, and the constant uses the weight of one index of V_mu.

@@ -11,3 +11,4 @@ import HsiLean.Monotone
 import HsiLean.MonotoneCE
 import HsiLean.Levin
 import HsiLean.WshEquiv
+import HsiLean.HsiMachines
