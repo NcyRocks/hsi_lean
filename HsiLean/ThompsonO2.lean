@@ -1787,6 +1787,459 @@ theorem sum_Bterm_le (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * �
       exact S0_mono hπ t fun h => keyS hC hH i h) T
   simpa using h
 
+/-! ### From the information budget to the log loss -/
+
+omit [DecidableEq A] [Nonempty A] in
+lemma S0_zero (π : Policy A E) (t : ℕ) : S0 π t (fun _ => 0) = 0 := by
+  induction t with
+  | zero => rfl
+  | succ t ih =>
+    simp only [S0]
+    have e : (fun h : Hist A E => ∑ a, π h a * ∑ _e : E, (0 : ℝ)) = fun _ => 0 := by
+      funext h
+      simp
+    rw [e]
+    exact ih
+
+omit [DecidableEq A] [Nonempty A] in
+lemma S0_smul (π : Policy A E) (c : ℝ) (t : ℕ) (F : Hist A E → ℝ) :
+    S0 π t (fun h => c * F h) = c * S0 π t F := by
+  simpa [S0_zero] using S0_lin π c t F (fun _ => 0)
+
+omit [DecidableEq A] [Nonempty A] in
+lemma S0_add (π : Policy A E) (t : ℕ) (F G : Hist A E → ℝ) :
+    S0 π t (fun h => F h + G h) = S0 π t F + S0 π t G := by
+  simpa using S0_lin π 1 t F G
+
+omit [DecidableEq A] [Nonempty A] in
+lemma S0_sum (π : Policy A E) (t : ℕ) (s : Finset ℕ) (f : ℕ → Hist A E → ℝ) :
+    S0 π t (fun h => ∑ i ∈ s, f i h) = ∑ i ∈ s, S0 π t (f i) := by
+  classical
+  induction s using Finset.induction_on with
+  | empty => simp [S0_zero]
+  | insert a s ha ih =>
+    simp_rw [Finset.sum_insert ha]
+    rw [S0_add, ih]
+
+lemma GapClass.card_pos (hC : GapClass r γ ν w act i₀ Δ) : 0 < Fintype.card E := by
+  rw [Fintype.card_pos_iff]
+  by_contra hne
+  rw [not_nonempty_iff] at hne
+  have := hC.truth_meas [] (Classical.arbitrary A)
+  simp at this
+
+omit [Fintype A] [Fintype E] [Nonempty A] in
+lemma disI_nonneg (act : ℕ → Hist A E → A) (i₀ i : ℕ) (h : Hist A E) : 0 ≤ disI act i₀ i h := by
+  unfold disI
+  split_ifs <;> norm_num
+
+/-- Step 5 of the draft, pointwise: the truth-weighted posterior mass of a disagreeing rival is
+at most a threshold term, a small-posterior-of-the-truth term, and a multiple of the summand of
+(★). -/
+lemma eI_le (hC : GapClass r γ ν w act i₀ Δ) (H i : ℕ) (hwi : 0 < w i) {θ δ : ℝ} (hθ : 0 < θ)
+    (hδ : 0 < δ) (h : Hist A E) :
+    lik (ν i₀) h * (post ν w i h * disI act i₀ i h) ≤
+      θ * lik (ν i₀) h + ((δ / w i₀) * xi ν w h +
+        (1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H)) * Bterm ν w act i₀ H i h) := by
+  have hw0 := hC.truth_pos
+  have hL := lik_nonneg (hC.semi i₀) h
+  have hξ := xi_nonneg hC.semi hC.w_nonneg h
+  have hB := Bterm_nonneg hC H i h
+  have hu1 := post_le_one hC i h
+  have hs : 0 < Real.sqrt (w i₀ * θ / w i) := Real.sqrt_pos.2 (div_pos (mul_pos hw0 hθ) hwi)
+  have hmin : 0 < min θ δ := lt_min hθ hδ
+  have hK : 0 < Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H := mul_pos hs (pow_pos hmin H)
+  have ht1 : 0 ≤ θ * lik (ν i₀) h := mul_nonneg hθ.le hL
+  have ht2 : 0 ≤ δ / w i₀ * xi ν w h := mul_nonneg (div_nonneg hδ.le hw0.le) hξ
+  have ht3 : 0 ≤ 1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w act i₀ H i h :=
+    mul_nonneg (one_div_nonneg.2 hK.le) hB
+  by_cases hdis : act i h ≠ act i₀ h
+  swap
+  · have e : disI act i₀ i h = 0 := by simp [disI, hdis]
+    rw [e, mul_zero, mul_zero]
+    linarith
+  have hd1 : disI act i₀ i h = 1 := by simp [disI, hdis]
+  rw [hd1, mul_one]
+  have hLu : lik (ν i₀) h * post ν w i h ≤ lik (ν i₀) h := mul_le_of_le_one_right hL hu1
+  by_cases hu : post ν w i h < θ
+  · have := mul_le_mul_of_nonneg_left hu.le hL
+    linarith
+  by_cases hv : w i₀ * lik (ν i₀) h < δ * xi ν w h
+  · have : lik (ν i₀) h ≤ δ / w i₀ * xi ν w h := by
+      rw [div_mul_eq_mul_div, le_div_iff₀ hw0]
+      linarith
+    linarith
+  have hu' := not_lt.1 hu
+  have hv' := not_lt.1 hv
+  have hξpos : 0 < xi ν w h := by
+    rcases hξ.eq_or_lt with h0 | h0
+    · exfalso
+      have : post ν w i h = 0 := by simp [post, ← h0]
+      linarith
+    · exact h0
+  have hwL : θ * xi ν w h ≤ w i * lik (ν i) h := by
+    have := hu'
+    unfold post at this
+    rwa [le_div_iff₀ hξpos] at this
+  have hvδ : δ ≤ post ν w i₀ h := by
+    unfold post
+    rw [le_div_iff₀ hξpos]
+    exact hv'
+  have hmH : min θ δ ^ H ≤ min (post ν w i h) (post ν w i₀ h) ^ H :=
+    pow_le_pow_left₀ hmin.le (min_le_min hu' hvδ) H
+  have hξge := le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h
+  have hY : lik (ν i₀) h * Real.sqrt (w i₀ * θ / w i) ≤ Y (ν i) (ν i₀) h := by
+    rw [← Real.sqrt_sq (mul_nonneg hL hs.le)]
+    unfold Y
+    refine Real.sqrt_le_sqrt ?_
+    rw [mul_pow, Real.sq_sqrt (div_nonneg (mul_nonneg hw0.le hθ.le) hwi.le)]
+    have h1 : lik (ν i₀) h * (w i₀ * θ) ≤ lik (ν i) h * w i := by
+      have := mul_le_mul_of_nonneg_left hξge hθ.le
+      linarith
+    have h2 : lik (ν i₀) h * (w i₀ * θ / w i) ≤ lik (ν i) h := by
+      rw [← mul_div_assoc, div_le_iff₀ hwi]
+      exact h1
+    have := mul_le_mul_of_nonneg_left h2 hL
+    nlinarith
+  have hBge : lik (ν i₀) h * (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) ≤
+      Bterm ν w act i₀ H i h := by
+    unfold Bterm
+    rw [hd1, mul_one, ← mul_assoc]
+    exact mul_le_mul hY hmH (pow_nonneg hmin.le H) (Y_nonneg _ _ _)
+  have : lik (ν i₀) h ≤
+      1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w act i₀ H i h := by
+    rw [one_div, ← div_eq_inv_mul, le_div_iff₀ hK]
+    exact hBge
+  linarith
+
+lemma GapClass.S0_lik (hC : GapClass r γ ν w act i₀ Δ) (t : ℕ) :
+    S0 (piP ν w act i₀) t (lik (ν i₀)) = 1 := by
+  have := S0_harm hC.piP_isPolicy (F := lik (ν i₀)) (fun h a => by
+    simp only [lik]; rw [← Finset.mul_sum, hC.truth_meas, mul_one]) t
+  simpa [lik] using this
+
+lemma GapClass.S0_xi (hC : GapClass r γ ν w act i₀ Δ) (t : ℕ) :
+    S0 (piP ν w act i₀) t (xi ν w) ≤ 1 :=
+  ((S0_super hC.piP_isPolicy (xi_super hC.semi hC.w_nonneg hC.w_summable) t).trans_eq
+    xi_nil).trans hC.w_le
+
+/-- Step 5 of the draft: the expected posterior mass of a rival, at the times it disagrees with
+the truth about the optimal action, tends to zero. -/
+lemma tendsto_eI (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) (i : ℕ) (hwi : 0 < w i) :
+    Filter.Tendsto (fun t => S0 (piP ν w act i₀) t
+      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h))) Filter.atTop (nhds 0) := by
+  have hπ := hC.piP_isPolicy
+  have hw0 := hC.truth_pos
+  obtain ⟨H, hH'⟩ := exists_pow_lt_of_lt_one (half_pos hΔ) hC.disc.γ_lt
+  have hH : 2 * γ ^ H < Δ := by linarith
+  have hM : (0 : ℝ) < (Fintype.card E : ℝ) ^ H := by
+    have : (0 : ℝ) < Fintype.card E := by exact_mod_cast hC.card_pos
+    exact pow_pos this H
+  have hκ : 0 < ((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8 :=
+    div_pos (pow_pos (div_pos (by linarith) hM) _) (by norm_num)
+  have hsum : Summable fun t => S0 (piP ν w act i₀) t (Bterm ν w act i₀ H i) :=
+    summable_of_sum_range_le (fun t => S0_nonneg hπ t (Bterm_nonneg hC H i))
+      (c := H / (((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8))
+      (fun T => by
+        rw [le_div_iff₀ hκ, mul_comm]
+        exact sum_Bterm_le hC hH i T)
+  have hnn : ∀ t, 0 ≤ S0 (piP ν w act i₀) t
+      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) := fun t =>
+    S0_nonneg hπ t fun h => mul_nonneg (lik_nonneg (hC.semi i₀) h)
+      (mul_nonneg (post_nonneg hC i h) (disI_nonneg act i₀ i h))
+  refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
+    lt_of_lt_of_le ha (hnn t), fun η hη => ?_⟩
+  have hθ : 0 < η / 3 := by linarith
+  have hδ : 0 < w i₀ * η / 3 := by positivity
+  have hb := hsum.tendsto_atTop_zero.const_mul
+    (1 / (Real.sqrt (w i₀ * (η / 3) / w i) * min (η / 3) (w i₀ * η / 3) ^ H))
+  rw [mul_zero] at hb
+  filter_upwards [hb.eventually (gt_mem_nhds hθ)] with t ht
+  have h1 := S0_mono hπ t (eI_le hC H i hwi hθ hδ)
+  rw [S0_lin, S0_lin, S0_smul, hC.S0_lik] at h1
+  have h2 := hC.S0_xi t
+  have h3 : w i₀ * η / 3 / w i₀ = η / 3 := by field_simp
+  rw [h3] at h1
+  have h4 : η / 3 * S0 (piP ν w act i₀) t (xi ν w) ≤ η / 3 * 1 :=
+    mul_le_mul_of_nonneg_left h2 hθ.le
+  linarith
+
+omit [Fintype A] [Fintype E] [DecidableEq A] [Nonempty A] in
+lemma neg_log_le_two_div_sqrt {v : ℝ} (hv : 0 < v) : -log v ≤ 2 / Real.sqrt v := by
+  have hs : 0 < Real.sqrt v := Real.sqrt_pos.2 hv
+  have h1 := Real.log_le_sub_one_of_pos (inv_pos.2 hs)
+  rw [Real.log_inv, Real.log_sqrt hv.le] at h1
+  have h2 : 2 / Real.sqrt v = 2 * (Real.sqrt v)⁻¹ := div_eq_mul_inv _ _
+  have h3 := inv_pos.2 hs
+  linarith
+
+omit [Fintype A] [Fintype E] [DecidableEq A] [Nonempty A] in
+lemma neg_log_le_div {δ P : ℝ} (hδ : 0 < δ) (hδP : δ ≤ P) (hP1 : P ≤ 1) :
+    -log P ≤ (1 - P) / δ := by
+  have hP : 0 < P := lt_of_lt_of_le hδ hδP
+  have h1 := Real.log_le_sub_one_of_pos (inv_pos.2 hP)
+  rw [Real.log_inv] at h1
+  have h2 : P⁻¹ - 1 = (1 - P) / P := by field_simp
+  have h3 : (1 - P) / P ≤ (1 - P) / δ :=
+    div_le_div_of_nonneg_left (by linarith) hδ hδP
+  linarith
+
+/-- Step 6 of the draft, pointwise. -/
+lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ : ℝ} (hδ0 : 0 < δ)
+    (h : Hist A E) :
+    lik (ν i₀) h * loss ν w act i₀ h ≤
+      (1 / δ) * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) +
+        ((1 / δ / w i₀) * xi ν (fun i => if i ∈ F then 0 else w i) h +
+          (2 * Real.sqrt δ / w i₀) * xi ν w h) := by
+  have hw0 := hC.truth_pos
+  have hL := lik_nonneg (hC.semi i₀) h
+  have hξ := xi_nonneg hC.semi hC.w_nonneg h
+  have hw'0 : ∀ i, 0 ≤ (fun i => if i ∈ F then 0 else w i) i := fun i => by
+    by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]
+  have hw's : Summable (fun i => if i ∈ F then 0 else w i) :=
+    Summable.of_nonneg_of_le hw'0 (fun i => by
+      by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]) hC.w_summable
+  have hξ' := xi_nonneg (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 h
+  have hsumnn : 0 ≤ ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) :=
+    Finset.sum_nonneg fun i _ => mul_nonneg hL
+      (mul_nonneg (post_nonneg hC i h) (disI_nonneg act i₀ i h))
+  have ht1 : 0 ≤ 1 / δ * ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) :=
+    mul_nonneg (one_div_nonneg.2 hδ0.le) hsumnn
+  have ht2 : 0 ≤ 1 / δ / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h :=
+    mul_nonneg (div_nonneg (one_div_nonneg.2 hδ0.le) hw0.le) hξ'
+  have ht3 : 0 ≤ 2 * Real.sqrt δ / w i₀ * xi ν w h :=
+    mul_nonneg (div_nonneg (mul_nonneg zero_le_two (Real.sqrt_nonneg δ)) hw0.le) hξ
+  rcases hL.eq_or_lt with hL0 | hLpos
+  · have e : lik (ν i₀) h * loss ν w act i₀ h = 0 := by rw [← hL0, zero_mul]
+    rw [e]
+    linarith
+  have hξge := le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h
+  have hξpos : 0 < xi ν w h := lt_of_lt_of_le (mul_pos hw0 hLpos) hξge
+  have hπd : ∀ i, IsPolicy (detPol (act i) : Policy A E) := fun i => detPol_isPolicy (act i)
+  -- facts about `P = π_T(a* | h)`
+  have hPdef : piT ν w act h (act i₀ h) =
+      (∑' i, w i * lik (ν i) h * detPol (act i) h (act i₀ h)) / xi ν w h := rfl
+  have hPv : w i₀ * lik (ν i₀) h / xi ν w h ≤ piT ν w act h (act i₀ h) := by
+    have h1 : w i₀ * lik (ν i₀) h * detPol (act i₀) h (act i₀ h) / xi ν w h ≤
+        piT ν w act h (act i₀ h) :=
+      thompson_ge hC.semi hC.w_nonneg hC.w_summable hπd i₀ h (act i₀ h)
+    have h2 : detPol (act i₀) h (act i₀ h) = 1 := by simp [detPol]
+    rwa [h2, mul_one] at h1
+  have hvpos : 0 < w i₀ * lik (ν i₀) h / xi ν w h := div_pos (mul_pos hw0 hLpos) hξpos
+  have hPpos : 0 < piT ν w act h (act i₀ h) := lt_of_lt_of_le hvpos hPv
+  have hP1 : piT ν w act h (act i₀ h) ≤ 1 := by
+    have e : piT ν w act h (act i₀ h) = piP ν w act i₀ h (act i₀ h) := by
+      simp [piP, thompsonP, piT, hξpos.ne']
+    rw [e]
+    exact policy_le_one hC.piP_isPolicy h _
+  by_cases hv : δ * xi ν w h ≤ w i₀ * lik (ν i₀) h
+  · -- the truth's posterior is at least `δ`
+    have hδP : δ ≤ piT ν w act h (act i₀ h) :=
+      le_trans ((le_div_iff₀ hξpos).2 hv) hPv
+    have hloss : loss ν w act i₀ h ≤ (1 - piT ν w act h (act i₀ h)) / δ :=
+      neg_log_le_div hδ0 hδP hP1
+    -- `(1 - P) ξ ≤ Σ_F w_i L_i dis_i + ξ'`
+    have hsl := summable_lik hC.semi hC.w_nonneg hC.w_summable h
+    have hsl' := summable_lik (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 hw's h
+    have hsF : Summable fun i => if i ∈ F then w i * lik (ν i) h * disI act i₀ i h else 0 :=
+      summable_of_ne_finset_zero (s := F) fun i hi => if_neg hi
+    have hFsum : ∑' i, (if i ∈ F then w i * lik (ν i) h * disI act i₀ i h else 0) =
+        ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h := by
+      rw [tsum_eq_sum (s := F) fun i hi => if_neg hi]
+      exact Finset.sum_congr rfl fun i hi => if_pos hi
+    have hnum : xi ν w h - ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h -
+        xi ν (fun i => if i ∈ F then 0 else w i) h ≤
+        ∑' i, w i * lik (ν i) h * detPol (act i) h (act i₀ h) := by
+      rw [← hFsum]
+      unfold xi
+      rw [← Summable.tsum_sub hsl hsF, ← Summable.tsum_sub (hsl.sub hsF) hsl']
+      refine Summable.tsum_le_tsum (fun i => ?_) ((hsl.sub hsF).sub hsl')
+        (summable_num hC.semi hC.w_nonneg hC.w_summable hπd h _)
+      have hwl : 0 ≤ w i * lik (ν i) h := mul_nonneg (hC.w_nonneg i) (lik_nonneg (hC.semi i) h)
+      by_cases hiF : i ∈ F
+      · by_cases hdis : act i h ≠ act i₀ h
+        · have hne : ¬ act i₀ h = act i h := fun hc => hdis hc.symm
+          simp [hiF, disI, hdis, detPol, hne]
+        · have heq : act i h = act i₀ h := not_not.1 hdis
+          simp [hiF, disI, detPol, heq]
+      · have h2 : 0 ≤ w i * lik (ν i) h * detPol (act i) h (act i₀ h) :=
+          mul_nonneg hwl ((hπd i).nonneg _ _)
+        simp only [hiF, if_false, sub_zero]
+        linarith
+    have hPξ : piT ν w act h (act i₀ h) * xi ν w h =
+        ∑' i, w i * lik (ν i) h * detPol (act i) h (act i₀ h) := by
+      rw [hPdef, div_mul_cancel₀ _ hξpos.ne']
+    -- multiply by `L_μ / ξ`
+    have hr0 : 0 ≤ lik (ν i₀) h / xi ν w h := div_nonneg hL hξpos.le
+    have hr1 : lik (ν i₀) h / xi ν w h ≤ 1 / w i₀ := by
+      rw [div_le_div_iff₀ hξpos hw0]
+      linarith
+    have hmain : lik (ν i₀) h * (1 - piT ν w act h (act i₀ h)) ≤
+        ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) +
+          1 / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h := by
+      have e1 : lik (ν i₀) h * (1 - piT ν w act h (act i₀ h)) =
+          lik (ν i₀) h / xi ν w h *
+            (xi ν w h - piT ν w act h (act i₀ h) * xi ν w h) := by
+        field_simp
+      have e2 : ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) =
+          lik (ν i₀) h / xi ν w h * ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h := by
+        rw [Finset.mul_sum]
+        refine Finset.sum_congr rfl fun i _ => ?_
+        unfold post
+        field_simp
+      rw [e1, e2]
+      have h5 : xi ν w h - piT ν w act h (act i₀ h) * xi ν w h ≤
+          ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h +
+            xi ν (fun i => if i ∈ F then 0 else w i) h := by
+        rw [hPξ]
+        linarith
+      have h6 := mul_le_mul_of_nonneg_left h5 hr0
+      have h7 := mul_le_mul_of_nonneg_right hr1 hξ'
+      rw [mul_add] at h6
+      linarith
+    have h8 : lik (ν i₀) h * loss ν w act i₀ h ≤
+        1 / δ * (lik (ν i₀) h * (1 - piT ν w act h (act i₀ h))) := by
+      have := mul_le_mul_of_nonneg_left hloss hL
+      calc lik (ν i₀) h * loss ν w act i₀ h
+          ≤ lik (ν i₀) h * ((1 - piT ν w act h (act i₀ h)) / δ) := this
+        _ = 1 / δ * (lik (ν i₀) h * (1 - piT ν w act h (act i₀ h))) := by ring
+    have h9 := mul_le_mul_of_nonneg_left hmain (one_div_nonneg.2 hδ0.le)
+    have h10 : 1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) +
+        1 / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h) =
+        1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) +
+          1 / δ / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h := by
+      ring
+    linarith
+  · -- the truth's posterior is below `δ`
+    have hv' := not_le.1 hv
+    have hvδ : w i₀ * lik (ν i₀) h / xi ν w h < δ := (div_lt_iff₀ hξpos).2 hv'
+    have hloss : loss ν w act i₀ h ≤ 2 / Real.sqrt (w i₀ * lik (ν i₀) h / xi ν w h) := by
+      refine le_trans ?_ (neg_log_le_two_div_sqrt hvpos)
+      exact neg_le_neg (Real.log_le_log hvpos hPv)
+    have hv2 : 2 * xi ν w h / w i₀ * (w i₀ * lik (ν i₀) h / xi ν w h) =
+        2 * lik (ν i₀) h := by
+      field_simp
+    have hsq : Real.sqrt (w i₀ * lik (ν i₀) h / xi ν w h) ≤ Real.sqrt δ :=
+      Real.sqrt_le_sqrt hvδ.le
+    have h1 := mul_le_mul_of_nonneg_left hloss hL
+    have h2 : lik (ν i₀) h * (2 / Real.sqrt (w i₀ * lik (ν i₀) h / xi ν w h)) =
+        2 * xi ν w h / w i₀ * ((w i₀ * lik (ν i₀) h / xi ν w h) /
+          Real.sqrt (w i₀ * lik (ν i₀) h / xi ν w h)) := by
+      generalize Real.sqrt (w i₀ * lik (ν i₀) h / xi ν w h) = S
+      have e : 2 * xi ν w h / w i₀ * (w i₀ * lik (ν i₀) h / xi ν w h / S) =
+          (2 * xi ν w h / w i₀ * (w i₀ * lik (ν i₀) h / xi ν w h)) / S := by ring
+      rw [e, hv2]
+      ring
+    rw [h2, Real.div_sqrt] at h1
+    have h3 := mul_le_mul_of_nonneg_left hsq
+      (div_nonneg (mul_nonneg zero_le_two hξpos.le) hw0.le)
+    have h4 : 2 * xi ν w h / w i₀ * Real.sqrt δ = 2 * Real.sqrt δ / w i₀ * xi ν w h := by ring
+    linarith
+
+/-- [UNAPPROVED STATEMENT] **O2, stochastic: the log loss on the optimal action vanishes in
+mean.** Hypotheses (`GapClass`): a countable class of (stochastic) semi-environments over finite
+action and percept types, with prior weights `w i ≥ 0`, `Σ w ≤ 1`; rewards in `[0,1]` read off
+the percept, geometric discounting with `γ ∈ [0,1)`; member `i`'s designated policy is a
+deterministic policy `act i` that is optimal for `ν i` at every history; the truth `ν i₀` is a
+measure with `w i₀ > 0` and has a uniform gap `Δ > 0`. Then on per-step Thompson sampling's own
+trajectory in the truth,
+
+  `E^{π_T}_μ [ -ln π_T(a*_t | h_{<t}) ] → 0` as `t → ∞`.
+
+No rate is claimed. -/
+theorem thompson_O2_stochastic (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) :
+    Filter.Tendsto (fun t => Ex (piT ν w act) (ν i₀) t (loss ν w act i₀)) Filter.atTop
+      (nhds 0) := by
+  classical
+  have hπ := hC.piP_isPolicy
+  have hw0 := hC.truth_pos
+  -- rewrite the expectation as a weighted sum under the completed policy
+  have hEx : ∀ t, Ex (piT ν w act) (ν i₀) t (loss ν w act i₀) =
+      S0 (piP ν w act i₀) t (fun h => lik (ν i₀) h * loss ν w act i₀ h) := by
+    intro t
+    rw [← Ex_eq_S0]
+    refine Ex_congr_policy (fun h hl a => ?_) t _
+    have hξ : xi ν w h ≠ 0 :=
+      (lt_of_lt_of_le (mul_pos hw0 ((lik_nonneg (hC.semi i₀) h).lt_of_ne' hl))
+        (le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h)).ne'
+    simp [piP, thompsonP, piT, hξ]
+  simp_rw [hEx]
+  have hnn : ∀ t, 0 ≤ S0 (piP ν w act i₀) t (fun h => lik (ν i₀) h * loss ν w act i₀ h) := by
+    intro t
+    refine S0_nonneg hπ t fun h => ?_
+    have h1 := loss_pointwise hC ∅ (δ := 1) one_pos h
+    rcases (lik_nonneg (hC.semi i₀) h).eq_or_lt with hL0 | hLpos
+    · rw [← hL0, zero_mul]
+    · refine mul_nonneg hLpos.le ?_
+      have hξpos : 0 < xi ν w h := lt_of_lt_of_le (mul_pos hw0 hLpos)
+        (le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h)
+      have e : piT ν w act h (act i₀ h) = piP ν w act i₀ h (act i₀ h) := by
+        simp [piP, thompsonP, piT, hξpos.ne']
+      have hP1 : piT ν w act h (act i₀ h) ≤ 1 := by
+        rw [e]; exact policy_le_one hπ h _
+      have hP0 : 0 ≤ piT ν w act h (act i₀ h) := by
+        rw [e]; exact hπ.nonneg h _
+      exact neg_nonneg.2 (Real.log_nonpos hP0 hP1)
+  refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
+    lt_of_lt_of_le ha (hnn t), fun η hη => ?_⟩
+  -- choose `δ`
+  set δ : ℝ := min (1 / 2) ((w i₀ * η / 6) ^ 2) with hδdef
+  have hq : 0 < w i₀ * η / 6 := by positivity
+  have hδ0 : 0 < δ := lt_min (by norm_num) (pow_pos hq 2)
+  have hsqδ : Real.sqrt δ ≤ w i₀ * η / 6 := by
+    rw [← Real.sqrt_sq hq.le]
+    exact Real.sqrt_le_sqrt (min_le_right _ _)
+  have hterm3 : 2 * Real.sqrt δ / w i₀ ≤ η / 3 := by
+    rw [div_le_iff₀ hw0]
+    linarith
+  -- choose `F`
+  have hε₀ : 0 < δ * w i₀ * (η / 3) := by positivity
+  obtain ⟨s, hs⟩ := ((tendsto_tsum_compl_atTop_zero w).eventually (gt_mem_nhds hε₀)).exists
+  have hsT : ∑' a : {a // a ∉ s}, w a = tailW w s := by
+    rw [show (∑' a : {a // a ∉ s}, w a) = ∑' a : ({a | a ∉ s} : Set ℕ), w a from rfl,
+      _root_.tsum_subtype]
+    refine tsum_congr fun i => ?_
+    by_cases hi : i ∈ s <;> simp [Set.indicator, hi]
+  rw [hsT] at hs
+  set F : Finset ℕ := s.filter fun i => 0 < w i with hF
+  have hFpos : ∀ i ∈ F, 0 < w i := fun i hi => (Finset.mem_filter.1 hi).2
+  have hsumm : ∀ G : Finset ℕ, Summable fun i => if i ∈ G then 0 else w i := fun G =>
+    Summable.of_nonneg_of_le (fun i => by split_ifs <;> simp [hC.w_nonneg i])
+      (fun i => by split_ifs <;> simp [hC.w_nonneg i]) hC.w_summable
+  have htF : tailW w F ≤ tailW w s := by
+    refine Summable.tsum_le_tsum (fun i => ?_) (hsumm F) (hsumm s)
+    by_cases hiF : i ∈ F
+    · rw [if_pos hiF]; split_ifs <;> simp [hC.w_nonneg i]
+    · rw [if_neg hiF]
+      by_cases his : i ∈ s
+      · rw [if_pos his]
+        by_contra hc
+        exact hiF (Finset.mem_filter.2 ⟨his, not_le.1 hc⟩)
+      · rw [if_neg his]
+  have hterm2 : 1 / δ / w i₀ * tailW w F ≤ η / 3 := by
+    rw [div_div, one_div, inv_mul_le_iff₀ (mul_pos hδ0 hw0)]
+    linarith
+  -- the finitely many rivals in `F`
+  have hlim : Filter.Tendsto (fun t => ∑ i ∈ F, S0 (piP ν w act i₀) t
+      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h))) Filter.atTop (nhds 0) := by
+    have := tendsto_finsetSum F fun i hi => tendsto_eI hC hΔ i (hFpos i hi)
+    simpa using this
+  have hlim' := hlim.const_mul (1 / δ)
+  rw [mul_zero] at hlim'
+  filter_upwards [hlim'.eventually (gt_mem_nhds (show 0 < η / 3 by linarith))] with t ht
+  have h1 := S0_mono hπ t (loss_pointwise hC F hδ0)
+  rw [S0_lin, S0_lin, S0_smul, S0_sum] at h1
+  have hw'0 : ∀ i, 0 ≤ (fun i => if i ∈ F then 0 else w i) i := fun i => by
+    by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]
+  have h2 : S0 (piP ν w act i₀) t (xi ν fun i => if i ∈ F then 0 else w i) ≤ tailW w F :=
+    (S0_super hπ (xi_super hC.semi hw'0 (hsumm F)) t).trans_eq xi_nil
+  have h3 := hC.S0_xi t
+  have h4 := mul_le_mul_of_nonneg_left h2
+    (div_nonneg (one_div_nonneg.2 hδ0.le) hw0.le)
+  have h5 := mul_le_mul_of_nonneg_left h3
+    (div_nonneg (mul_nonneg zero_le_two (Real.sqrt_nonneg δ)) hw0.le)
+  linarith
+
 end StochThompson
 
 end HsiLean.ThompsonO2
