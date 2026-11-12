@@ -2277,6 +2277,279 @@ theorem thompson_O2_stochastic (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < 
     (div_nonneg (mul_nonneg zero_le_two (Real.sqrt_nonneg δ)) hw0.le)
   linarith
 
+/-! ### Without a gap: the probability of playing a `Δ`-suboptimal action vanishes
+
+The gap was used only to turn "member `i` disagrees with the truth" into "member `i`'s action is
+`Δ`-suboptimal in the truth". Dropping it, the same argument shows, for ANY countable class with
+optimal deterministic designated policies and for every `Δ > 0`, that the probability that
+per-step Thompson sampling plays an action whose `Q*` in the truth is at least `Δ` below the
+truth's designated action tends to zero; hence so does the expected `Q*`-gap of the action it
+plays. This bears on the note's (O1): it is the gap-weighted statement for one policy in one
+class, NOT the unweighted mistake rate that (O1) asks about. -/
+
+lemma OptClass.Ex_piT_eq (hC : OptClass r γ ν w act i₀) (t : ℕ) (f : Hist A E → ℝ) :
+    Ex (piT ν w act) (ν i₀) t f = Ex (piP ν w act i₀) (ν i₀) t f := by
+  refine Ex_congr_policy (fun h hl a => ?_) t f
+  have hξ : xi ν w h ≠ 0 :=
+    (lt_of_lt_of_le (mul_pos hC.truth_pos ((lik_nonneg (hC.semi i₀) h).lt_of_ne' hl))
+      (le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h)).ne'
+  simp [piP, thompsonP, piT, hξ]
+
+/-- For every `ε > 0` there is a finite set of members of positive weight carrying all but `ε`
+of the prior. -/
+lemma OptClass.exists_finset_tail (hC : OptClass r γ ν w act i₀) {ε : ℝ} (hε : 0 < ε) :
+    ∃ F : Finset ℕ, (∀ i ∈ F, 0 < w i) ∧ tailW w F < ε := by
+  classical
+  obtain ⟨s, hs⟩ := ((tendsto_tsum_compl_atTop_zero w).eventually (gt_mem_nhds hε)).exists
+  have hsT : ∑' a : {a // a ∉ s}, w a = tailW w s := by
+    rw [show (∑' a : {a // a ∉ s}, w a) = ∑' a : ({a | a ∉ s} : Set ℕ), w a from rfl,
+      _root_.tsum_subtype]
+    refine tsum_congr fun i => ?_
+    by_cases hi : i ∈ s <;> simp [Set.indicator, hi]
+  rw [hsT] at hs
+  have hsumm : ∀ G : Finset ℕ, Summable fun i => if i ∈ G then 0 else w i := fun G =>
+    Summable.of_nonneg_of_le (fun i => by split_ifs <;> simp [hC.w_nonneg i])
+      (fun i => by split_ifs <;> simp [hC.w_nonneg i]) hC.w_summable
+  refine ⟨s.filter fun i => 0 < w i, fun i hi => (Finset.mem_filter.1 hi).2, lt_of_le_of_lt ?_ hs⟩
+  refine Summable.tsum_le_tsum (fun i => ?_) (hsumm _) (hsumm s)
+  by_cases hiF : i ∈ s.filter fun i => 0 < w i
+  · rw [if_pos hiF]; split_ifs <;> simp [hC.w_nonneg i]
+  · rw [if_neg hiF]
+    by_cases his : i ∈ s
+    · rw [if_pos his]
+      by_contra hc
+      exact hiF (Finset.mem_filter.2 ⟨his, not_le.1 hc⟩)
+    · rw [if_neg his]
+
+open Classical in
+/-- [UNAPPROVED STATEMENT] The indicator that action `a` is `Δ`-suboptimal for `μ` at `h`:
+its `Q*` is at least `Δ` below that of the designated action `astar h`. -/
+noncomputable def subI (r : E → ℝ) (γ : ℝ) (μ : Env A E) (astar : Hist A E → A) (Δ : ℝ)
+    (h : Hist A E) (a : A) : ℝ :=
+  if Qstar r γ μ h a + Δ ≤ Qstar r γ μ h (astar h) then 1 else 0
+
+/-- [UNAPPROVED STATEMENT] The probability that Thompson sampling plays a `Δ`-suboptimal action
+at `h`. -/
+noncomputable def subProb (r : E → ℝ) (γ : ℝ) (ν : ℕ → Env A E) (w : ℕ → ℝ)
+    (act : ℕ → Hist A E → A) (i₀ : ℕ) (Δ : ℝ) (h : Hist A E) : ℝ :=
+  ∑ a, piT ν w act h a * subI r γ (ν i₀) (act i₀) Δ h a
+
+/-- Member `i`'s action at `h` is `Δ`-suboptimal in the truth. -/
+def subBad (r : E → ℝ) (γ : ℝ) (ν : ℕ → Env A E) (act : ℕ → Hist A E → A) (i₀ : ℕ) (Δ : ℝ) :
+    ℕ → Hist A E → Prop :=
+  fun i h => Qstar r γ (ν i₀) h (act i h) + Δ ≤ Qstar r γ (ν i₀) h (act i₀ h)
+
+omit [Fintype A] [Fintype E] [DecidableEq A] [Nonempty A] in
+lemma indI_le_one (Bad : ℕ → Hist A E → Prop) (i : ℕ) (h : Hist A E) : indI Bad i h ≤ 1 := by
+  unfold indI
+  split_ifs <;> norm_num
+
+lemma subProb_pointwise (hC : OptClass r γ ν w act i₀) (Δ : ℝ) (F : Finset ℕ) (h : Hist A E) :
+    lik (ν i₀) h * subProb r γ ν w act i₀ Δ h ≤
+      ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI (subBad r γ ν act i₀ Δ) i h) +
+        (1 / w i₀) * xi ν (fun i => if i ∈ F then 0 else w i) h := by
+  classical
+  have hw0 := hC.truth_pos
+  have hL := lik_nonneg (hC.semi i₀) h
+  have hw'0 : ∀ i, 0 ≤ (fun i => if i ∈ F then 0 else w i) i := fun i => by
+    by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]
+  have hw's : Summable (fun i => if i ∈ F then 0 else w i) :=
+    Summable.of_nonneg_of_le hw'0 (fun i => by
+      by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]) hC.w_summable
+  have hξ' := xi_nonneg (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 h
+  have hsumnn : 0 ≤ ∑ i ∈ F, lik (ν i₀) h *
+      (post ν w i h * indI (subBad r γ ν act i₀ Δ) i h) :=
+    Finset.sum_nonneg fun i _ => mul_nonneg hL
+      (mul_nonneg (post_nonneg hC i h) (indI_nonneg _ i h))
+  have ht2 : 0 ≤ 1 / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h :=
+    mul_nonneg (one_div_nonneg.2 hw0.le) hξ'
+  rcases hL.eq_or_lt with hL0 | hLpos
+  · have e : lik (ν i₀) h * subProb r γ ν w act i₀ Δ h = 0 := by rw [← hL0, zero_mul]
+    rw [e]
+    linarith
+  have hξge := le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h
+  have hξpos : 0 < xi ν w h := lt_of_lt_of_le (mul_pos hw0 hLpos) hξge
+  have hπd : ∀ i, IsPolicy (detPol (act i) : Policy A E) := fun i => detPol_isPolicy (act i)
+  have hsl' := summable_lik (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 hw's h
+  have hwl : ∀ i, 0 ≤ w i * lik (ν i) h := fun i =>
+    mul_nonneg (hC.w_nonneg i) (lik_nonneg (hC.semi i) h)
+  -- the probability of a suboptimal action is the posterior mass of the members proposing one
+  have hkey : subProb r γ ν w act i₀ Δ h * xi ν w h =
+      ∑' i, w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h := by
+    unfold subProb
+    rw [Finset.sum_mul]
+    have e1 : ∀ a, piT ν w act h a * subI r γ (ν i₀) (act i₀) Δ h a * xi ν w h =
+        ∑' i, w i * lik (ν i) h * detPol (act i) h a * subI r γ (ν i₀) (act i₀) Δ h a := by
+      intro a
+      have e0 : piT ν w act h a =
+          (∑' i, w i * lik (ν i) h * detPol (act i) h a) / xi ν w h := rfl
+      rw [e0, tsum_mul_right]
+      field_simp
+    simp_rw [e1]
+    rw [← Summable.tsum_finsetSum (fun a _ =>
+      (summable_num hC.semi hC.w_nonneg hC.w_summable hπd h a).mul_right _)]
+    refine tsum_congr fun i => ?_
+    rw [Finset.sum_eq_single (act i h)]
+    · by_cases hs : Qstar r γ (ν i₀) h (act i h) + Δ ≤ Qstar r γ (ν i₀) h (act i₀ h)
+      · simp [detPol, subI, indI, subBad, hs]
+      · simp [detPol, subI, indI, subBad, hs]
+    · intro b _ hb
+      simp [detPol, hb]
+    · intro hn
+      exact absurd (Finset.mem_univ _) hn
+  have hsF : Summable fun i =>
+      if i ∈ F then w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h else 0 :=
+    summable_of_ne_finset_zero (s := F) fun i hi => if_neg hi
+  have hFsum : ∑' i, (if i ∈ F then w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h
+      else 0) = ∑ i ∈ F, w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h := by
+    rw [tsum_eq_sum (s := F) fun i hi => if_neg hi]
+    exact Finset.sum_congr rfl fun i hi => if_pos hi
+  have hsI : Summable fun i => w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h :=
+    Summable.of_nonneg_of_le (fun i => mul_nonneg (hwl i) (indI_nonneg _ i h))
+      (fun i => mul_le_of_le_one_right (hwl i) (indI_le_one _ i h))
+      (summable_lik hC.semi hC.w_nonneg hC.w_summable h)
+  have hle : ∑' i, w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h ≤
+      ∑ i ∈ F, w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h +
+        xi ν (fun i => if i ∈ F then 0 else w i) h := by
+    rw [← hFsum]
+    unfold xi
+    rw [← Summable.tsum_add hsF hsl']
+    refine Summable.tsum_le_tsum (fun i => ?_) hsI (hsF.add hsl')
+    by_cases hiF : i ∈ F
+    · simp only [hiF, if_true, zero_mul, add_zero]
+      exact le_rfl
+    · simp only [hiF, if_false, zero_add]
+      exact mul_le_of_le_one_right (hwl i) (indI_le_one _ i h)
+  have hr0 : 0 ≤ lik (ν i₀) h / xi ν w h := div_nonneg hL hξpos.le
+  have hr1 : lik (ν i₀) h / xi ν w h ≤ 1 / w i₀ := by
+    rw [div_le_div_iff₀ hξpos hw0]
+    linarith
+  have e1 : lik (ν i₀) h * subProb r γ ν w act i₀ Δ h =
+      lik (ν i₀) h / xi ν w h * (subProb r γ ν w act i₀ Δ h * xi ν w h) := by
+    field_simp
+  have e2 : ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI (subBad r γ ν act i₀ Δ) i h) =
+      lik (ν i₀) h / xi ν w h *
+        ∑ i ∈ F, w i * lik (ν i) h * indI (subBad r γ ν act i₀ Δ) i h := by
+    rw [Finset.mul_sum]
+    refine Finset.sum_congr rfl fun i _ => ?_
+    unfold post
+    field_simp
+  rw [e1, e2, hkey]
+  have h6 := mul_le_mul_of_nonneg_left hle hr0
+  have h7 := mul_le_mul_of_nonneg_right hr1 hξ'
+  rw [mul_add] at h6
+  linarith
+
+/-- [UNAPPROVED STATEMENT] **No gap assumed: the probability of a `Δ`-suboptimal action
+vanishes.** Hypotheses (`OptClass`): a countable class of (stochastic) semi-environments over
+finite action and percept types, prior weights `w i ≥ 0`, `Σ w ≤ 1`; rewards in `[0,1]`,
+geometric discounting; each member's designated policy is a deterministic policy `act i`
+optimal for it at every history; the truth `ν i₀` is a measure with `w i₀ > 0`. Then for every
+`Δ > 0`, on per-step Thompson sampling's own trajectory in the truth, the probability that the
+action it plays at time `t` has `Q*_μ` at least `Δ` below `Q*_μ(h, act i₀ h)` tends to `0`. -/
+theorem thompson_subopt_tendsto (hC : OptClass r γ ν w act i₀) {Δ : ℝ} (hΔ : 0 < Δ) :
+    Filter.Tendsto (fun t => Ex (piT ν w act) (ν i₀) t (subProb r γ ν w act i₀ Δ))
+      Filter.atTop (nhds 0) := by
+  classical
+  have hπ := hC.piP_isPolicy
+  have hw0 := hC.truth_pos
+  simp_rw [hC.Ex_piT_eq, Ex_eq_S0]
+  have hnn : ∀ t, 0 ≤ S0 (piP ν w act i₀) t
+      (fun h => lik (ν i₀) h * subProb r γ ν w act i₀ Δ h) := fun t =>
+    S0_nonneg hπ t fun h => mul_nonneg (lik_nonneg (hC.semi i₀) h)
+      (Finset.sum_nonneg fun a _ => mul_nonneg
+        (thompson_nonneg hC.semi hC.w_nonneg (fun i => detPol_isPolicy (act i)) h a)
+        (by unfold subI; split_ifs <;> norm_num))
+  refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
+    lt_of_lt_of_le ha (hnn t), fun η hη => ?_⟩
+  obtain ⟨F, hFpos, hFtail⟩ := hC.exists_finset_tail (show 0 < w i₀ * (η / 2) by positivity)
+  have hterm2 : 1 / w i₀ * tailW w F ≤ η / 2 := by
+    rw [one_div, inv_mul_le_iff₀ hw0]
+    exact hFtail.le
+  have hlim : Filter.Tendsto (fun t => ∑ i ∈ F, S0 (piP ν w act i₀) t
+      (fun h => lik (ν i₀) h * (post ν w i h * indI (subBad r γ ν act i₀ Δ) i h)))
+      Filter.atTop (nhds 0) := by
+    have := tendsto_finsetSum F fun i hi =>
+      tendsto_eI (Bad := subBad r γ ν act i₀ Δ) hC hΔ i (hFpos i hi) (fun h _ hb => hb)
+    simpa using this
+  filter_upwards [hlim.eventually (gt_mem_nhds (show 0 < η / 2 by linarith))] with t ht
+  have h1 := S0_mono hπ t (subProb_pointwise hC Δ F)
+  rw [S0_add, S0_smul, S0_sum] at h1
+  have hw'0 : ∀ i, 0 ≤ (fun i => if i ∈ F then 0 else w i) i := fun i => by
+    by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]
+  have hsumm : Summable fun i => if i ∈ F then 0 else w i :=
+    Summable.of_nonneg_of_le hw'0 (fun i => by
+      by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]) hC.w_summable
+  have h2 : S0 (piP ν w act i₀) t (xi ν fun i => if i ∈ F then 0 else w i) ≤ tailW w F :=
+    (S0_super hπ (xi_super hC.semi hw'0 hsumm) t).trans_eq xi_nil
+  have h4 := mul_le_mul_of_nonneg_left h2 (one_div_nonneg.2 hw0.le)
+  linarith
+
+/-- [UNAPPROVED STATEMENT] The expected `Q*`-gap, in the truth, of the action Thompson sampling
+plays at `h`: `Σ_a π_T(a|h) · (Q*_μ(h, act i₀ h) - Q*_μ(h, a))`. -/
+noncomputable def gapPlayed (r : E → ℝ) (γ : ℝ) (ν : ℕ → Env A E) (w : ℕ → ℝ)
+    (act : ℕ → Hist A E → A) (i₀ : ℕ) (h : Hist A E) : ℝ :=
+  ∑ a, piT ν w act h a * (Qstar r γ (ν i₀) h (act i₀ h) - Qstar r γ (ν i₀) h a)
+
+/-- [UNAPPROVED STATEMENT] **No gap assumed: the expected `Q*`-gap of the action played
+vanishes.** Under `OptClass` (as in `thompson_subopt_tendsto`), on per-step Thompson sampling's
+own trajectory in the truth, `E[ Q*_μ(h_t, a*_t) - Q*_μ(h_t, a_t) ] → 0`. -/
+theorem thompson_gap_tendsto (hC : OptClass r γ ν w act i₀) :
+    Filter.Tendsto (fun t => Ex (piT ν w act) (ν i₀) t (gapPlayed r γ ν w act i₀))
+      Filter.atTop (nhds 0) := by
+  classical
+  have hπ := hC.piP_isPolicy
+  have hw0 := hC.truth_pos
+  have hπd : ∀ i, IsPolicy (detPol (act i) : Policy A E) := fun i => detPol_isPolicy (act i)
+  -- pointwise bounds at histories of positive probability
+  have hpt : ∀ (Δ : ℝ), 0 ≤ Δ → ∀ h, lik (ν i₀) h ≠ 0 →
+      0 ≤ gapPlayed r γ ν w act i₀ h ∧
+        gapPlayed r γ ν w act i₀ h ≤ Δ * 1 + subProb r γ ν w act i₀ Δ h := by
+    intro Δ hΔ0 h hl
+    have hξ : xi ν w h ≠ 0 :=
+      (lt_of_lt_of_le (mul_pos hw0 ((lik_nonneg (hC.semi i₀) h).lt_of_ne' hl))
+        (le_xi hC.semi hC.w_nonneg hC.w_summable i₀ h)).ne'
+    have hsum1 : ∑ a, piT ν w act h a = 1 :=
+      thompson_sum hC.semi hC.w_nonneg hC.w_summable hπd h hξ
+    have hp0 : ∀ a, 0 ≤ piT ν w act h a := fun a =>
+      thompson_nonneg hC.semi hC.w_nonneg hπd h a
+    have hg0 : ∀ a, 0 ≤ Qstar r γ (ν i₀) h (act i₀ h) - Qstar r γ (ν i₀) h a := fun a =>
+      sub_nonneg.2 (hC.opt i₀ h a)
+    have hg1 : ∀ a, Qstar r γ (ν i₀) h (act i₀ h) - Qstar r γ (ν i₀) h a ≤
+        Δ + subI r γ (ν i₀) (act i₀) Δ h a := by
+      intro a
+      have hb1 := (Qstar_bounds hC.disc (hC.semi i₀) h (act i₀ h)).2
+      have hb0 := (Qstar_bounds hC.disc (hC.semi i₀) h a).1
+      unfold subI
+      split_ifs with hs
+      · linarith
+      · linarith [not_le.1 hs]
+    constructor
+    · exact Finset.sum_nonneg fun a _ => mul_nonneg (hp0 a) (hg0 a)
+    · calc gapPlayed r γ ν w act i₀ h
+          ≤ ∑ a, piT ν w act h a * (Δ + subI r γ (ν i₀) (act i₀) Δ h a) :=
+            Finset.sum_le_sum fun a _ => mul_le_mul_of_nonneg_left (hg1 a) (hp0 a)
+        _ = Δ * 1 + subProb r γ ν w act i₀ Δ h := by
+            unfold subProb
+            simp_rw [mul_add]
+            rw [Finset.sum_add_distrib, ← Finset.sum_mul, hsum1]
+            ring
+  have hnn : ∀ t, 0 ≤ Ex (piT ν w act) (ν i₀) t (gapPlayed r γ ν w act i₀) := by
+    intro t
+    rw [hC.Ex_piT_eq]
+    have := Ex_mono' hπ (hC.semi i₀) t (f := fun _ => 0) (g := gapPlayed r γ ν w act i₀)
+      (fun h hl => (hpt 0 le_rfl h hl).1)
+    rwa [Ex_const hπ hC.truth_meas] at this
+  refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
+    lt_of_lt_of_le ha (hnn t), fun η hη => ?_⟩
+  have hΔ : 0 < η / 2 := by linarith
+  filter_upwards [(thompson_subopt_tendsto hC hΔ).eventually (gt_mem_nhds hΔ)] with t ht
+  have h1 := Ex_mono' hπ (hC.semi i₀) t (f := gapPlayed r γ ν w act i₀)
+    (g := fun h => η / 2 * (fun _ => (1 : ℝ)) h + subProb r γ ν w act i₀ (η / 2) h)
+    (fun h hl => (hpt (η / 2) hΔ.le h hl).2)
+  rw [Ex_lin, Ex_const hπ hC.truth_meas, ← hC.Ex_piT_eq, ← hC.Ex_piT_eq] at h1
+  linarith
+
 end StochThompson
 
 end HsiLean.ThompsonO2
