@@ -709,6 +709,233 @@ theorem sum_bad_le (hC : DetClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ 
   rw [le_div_iff₀ hqH, mul_comm]
   linarith
 
+/-! ### From disagreement to log loss -/
+
+lemma tailW_summable (hC : DetClass r γ ν w act i₀ Δ) (F : Finset ℕ) :
+    Summable (fun i => if i ∈ F then 0 else w i) :=
+  Summable.of_nonneg_of_le (fun i => by split_ifs <;> simp [hC.w_nonneg i])
+    (fun i => by split_ifs <;> simp [hC.w_nonneg i]) hC.w_summable
+
+lemma tailW_nonneg (hC : DetClass r γ ν w act i₀ Δ) (F : Finset ℕ) : 0 ≤ tailW w F :=
+  tsum_nonneg fun i => by split_ifs <;> simp [hC.w_nonneg i]
+
+/-- At a history the truth can produce: `0 ≤ ℓ ≤ ln(1/w_μ)` (Theorem 5, pointwise, for a
+deterministic class). -/
+lemma loss_bounds (hC : DetClass r γ ν w act i₀ Δ) {h : Hist A E} (hl : lik (ν i₀) h ≠ 0) :
+    0 ≤ loss ν w act i₀ h ∧ loss ν w act i₀ h ≤ log (1 / w i₀) := by
+  have h1 := piT_ge_w hC hl i₀ hl
+  have h2 := piT_le_one hC hl (act i₀ h)
+  have hpos : 0 < piT ν w act h (act i₀ h) := lt_of_lt_of_le hC.truth_pos h1
+  unfold loss
+  constructor
+  · exact neg_nonneg.2 (Real.log_nonpos hpos.le h2)
+  · rw [one_div, Real.log_inv]
+    exact neg_le_neg (Real.log_le_log hC.truth_pos h1)
+
+/-- At a history the truth can produce where no unrefuted member of `F` disagrees, the loss is
+at most `-ln(1 - (prior weight outside F)/w_μ)`. -/
+lemma loss_le_of_not_bad (hC : DetClass r γ ν w act i₀ Δ) {F : Finset ℕ}
+    (hε : tailW w F < w i₀) {h : Hist A E} (hl : lik (ν i₀) h ≠ 0)
+    (hnb : ¬ ∃ i ∈ F, lik (ν i) h ≠ 0 ∧ act i h ≠ act i₀ h) :
+    loss ν w act i₀ h ≤ -log (1 - tailW w F / w i₀) := by
+  have hw0 := hC.truth_pos
+  have hξ := xi_ge_truth hC hl
+  have hξpos : 0 < xi ν w h := lt_of_lt_of_le hw0 hξ
+  have hsumT := tailW_summable hC F
+  have hε0 := tailW_nonneg hC F
+  have hsl := summable_lik hC.semi hC.w_nonneg hC.w_summable h
+  have hnum : xi ν w h - tailW w F ≤
+      ∑' i, w i * lik (ν i) h * detPol (act i) h (act i₀ h) := by
+    unfold xi tailW
+    rw [← Summable.tsum_sub hsl hsumT]
+    refine Summable.tsum_le_tsum (fun i => ?_) (hsl.sub hsumT)
+      (summable_num hC.semi hC.w_nonneg hC.w_summable (fun i => detPol_isPolicy (act i)) h _)
+    by_cases hiF : i ∈ F
+    · rw [if_pos hiF, sub_zero]
+      by_cases hli : lik (ν i) h = 0
+      · simp [hli]
+      · have hagree : act i h = act i₀ h := by
+          by_contra hne
+          exact hnb ⟨i, hiF, hli, hne⟩
+        simp [detPol, hagree]
+    · rw [if_neg hiF]
+      have h1 := mul_le_of_le_one_right (hC.w_nonneg i) (lik_le_one (hC.semi i) h)
+      have h2 : 0 ≤ w i * lik (ν i) h * detPol (act i) h (act i₀ h) :=
+        mul_nonneg (mul_nonneg (hC.w_nonneg i) (lik_nonneg (hC.semi i) h))
+          ((detPol_isPolicy (act i)).nonneg _ _)
+      linarith
+  have hth : 1 - tailW w F / w i₀ ≤ piT ν w act h (act i₀ h) := by
+    have h1 : (xi ν w h - tailW w F) / xi ν w h ≤ piT ν w act h (act i₀ h) :=
+      div_le_div_of_nonneg_right hnum hξpos.le
+    have h2 : tailW w F / xi ν w h ≤ tailW w F / w i₀ :=
+      div_le_div_of_nonneg_left hε0 hw0 hξ
+    have h3 : (xi ν w h - tailW w F) / xi ν w h = 1 - tailW w F / xi ν w h := by
+      field_simp
+    linarith
+  have hpos : 0 < 1 - tailW w F / w i₀ := by
+    rw [sub_pos, div_lt_one hw0]
+    exact hε
+  unfold loss
+  exact neg_le_neg (Real.log_le_log hpos hth)
+
+/-- The expected loss is at most `ln(1/w_μ)` times the probability of disagreement within `F`,
+plus the tail term. -/
+lemma Ex_loss_le (hC : DetClass r γ ν w act i₀ Δ) {F : Finset ℕ} (hε : tailW w F < w i₀)
+    (t : ℕ) :
+    Ex (piT ν w act) (ν i₀) t (loss ν w act i₀) ≤
+      log (1 / w i₀) * Ex (piT ν w act) (ν i₀) t (badI ν act i₀ F) +
+        -log (1 - tailW w F / w i₀) := by
+  classical
+  have hπ := piP_isPolicy hC
+  have hw0 := hC.truth_pos
+  have hδ : 0 ≤ -log (1 - tailW w F / w i₀) := by
+    have h1 : 0 ≤ tailW w F / w i₀ := div_nonneg (tailW_nonneg hC F) hw0.le
+    have h2 : tailW w F / w i₀ < 1 := by rwa [div_lt_one hw0]
+    exact neg_nonneg.2 (Real.log_nonpos (by linarith) (by linarith))
+  rw [Ex_piT_eq hC, Ex_piT_eq hC]
+  have h1 := Ex_mono' hπ (hC.semi i₀) t (f := loss ν w act i₀)
+    (g := fun h => log (1 / w i₀) * badI ν act i₀ F h + -log (1 - tailW w F / w i₀))
+    (fun h hl => by
+      by_cases hb : ∃ i ∈ F, lik (ν i) h ≠ 0 ∧ act i h ≠ act i₀ h
+      · have hbI : badI ν act i₀ F h = 1 := if_pos hb
+        rw [hbI, mul_one]
+        linarith [(loss_bounds hC hl).2]
+      · have hbI : badI ν act i₀ F h = 0 := if_neg hb
+        rw [hbI, mul_zero, zero_add]
+        exact loss_le_of_not_bad hC hε hl hb)
+  rw [Ex_lin, Ex_const hπ hC.truth_meas] at h1
+  exact h1
+
+lemma Ex_loss_nonneg (hC : DetClass r γ ν w act i₀ Δ) (t : ℕ) :
+    0 ≤ Ex (piT ν w act) (ν i₀) t (loss ν w act i₀) := by
+  have hπ := piP_isPolicy hC
+  rw [Ex_piT_eq hC]
+  have := Ex_mono' hπ (hC.semi i₀) t (f := fun _ => 0) (g := loss ν w act i₀)
+    (fun h hl => (loss_bounds hC hl).1)
+  rwa [Ex_const hπ hC.truth_meas] at this
+
+lemma Ex_badI_nonneg (hC : DetClass r γ ν w act i₀ Δ) (F : Finset ℕ) (t : ℕ) :
+    0 ≤ Ex (piT ν w act) (ν i₀) t (badI ν act i₀ F) := by
+  classical
+  have hπ := piP_isPolicy hC
+  rw [Ex_piT_eq hC]
+  have := Ex_mono' hπ (hC.semi i₀) t (f := fun _ => 0) (g := badI ν act i₀ F)
+    (fun h _ => by unfold badI; split_ifs <;> norm_num)
+  rwa [Ex_const hπ hC.truth_meas] at this
+
+/-- [UNAPPROVED STATEMENT] **O2, finite deterministic class: the log loss is summable.**
+Hypotheses: `DetClass` (deterministic semi-environments, deterministic designated policies that
+are optimal for their environments, the truth `ν i₀` a measure of positive prior weight with a
+uniform gap `Δ`); `2 γ^H < Δ`; the prior is supported on a finite set `F` containing the truth,
+with every weight on `F` at least `q > 0`. Then on Thompson sampling's own trajectory in the
+truth, for every horizon `T`,
+
+  `Σ_{t < T} E[ -ln π_T(a*_t | h_{<t}) ] ≤ ln(1/w_μ) · H · |F| / q^H`.
+
+In particular `E[ℓ_t] → 0`, and summably. (`thompson_per_step` alone gives `ln(1/w_μ)` per step,
+i.e. `T · ln(1/w_μ)`.) -/
+theorem thompson_O2_finite (hC : DetClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ)
+    {F : Finset ℕ} (hi₀ : i₀ ∈ F) {q : ℝ} (hq : 0 < q) (hqF : ∀ i ∈ F, q ≤ w i)
+    (hsupp : ∀ i, i ∉ F → w i = 0) (T : ℕ) :
+    ∑ t ∈ Finset.range T, Ex (piT ν w act) (ν i₀) t (loss ν w act i₀) ≤
+      log (1 / w i₀) * (H * F.card / q ^ H) := by
+  have htail : tailW w F = 0 := by
+    unfold tailW
+    have e : ∀ i, (if i ∈ F then (0 : ℝ) else w i) = 0 := fun i => by
+      by_cases hi : i ∈ F <;> simp [hi, hsupp i]
+    simp_rw [e]
+    exact tsum_zero
+  have hε : tailW w F < w i₀ := by rw [htail]; exact hC.truth_pos
+  have hL : 0 ≤ log (1 / w i₀) := by
+    refine Real.log_nonneg ?_
+    rw [le_div_iff₀ hC.truth_pos, one_mul]
+    exact (hC.w_summable.le_tsum i₀ fun j _ => hC.w_nonneg j).trans hC.w_le
+  calc ∑ t ∈ Finset.range T, Ex (piT ν w act) (ν i₀) t (loss ν w act i₀)
+      ≤ ∑ t ∈ Finset.range T, log (1 / w i₀) * Ex (piT ν w act) (ν i₀) t (badI ν act i₀ F) :=
+        Finset.sum_le_sum fun t _ => by
+          have := Ex_loss_le hC hε t
+          rw [htail] at this
+          simpa using this
+    _ = log (1 / w i₀) * ∑ t ∈ Finset.range T, Ex (piT ν w act) (ν i₀) t (badI ν act i₀ F) := by
+        rw [Finset.mul_sum]
+    _ ≤ log (1 / w i₀) * (H * F.card / q ^ H) :=
+        mul_le_mul_of_nonneg_left (sum_bad_le hC hH hi₀ hq hqF T) hL
+
+/-- [UNAPPROVED STATEMENT] **O2, countable deterministic class: the log loss vanishes in mean.**
+Under `DetClass` (a countable class of deterministic semi-environments with deterministic
+designated policies optimal for their environments; the truth a measure of positive prior weight)
+with a uniform gap `Δ > 0`: on Thompson sampling's own trajectory in the truth,
+
+  `E[ -ln π_T(a*_t | h_{<t}) ] → 0` as `t → ∞`.
+
+No rate: by the note's Theorem 3 the sum over `t` can be infinite for a countable class. -/
+theorem thompson_O2_tendsto (hC : DetClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) :
+    Filter.Tendsto (fun t => Ex (piT ν w act) (ν i₀) t (loss ν w act i₀)) Filter.atTop
+      (nhds 0) := by
+  classical
+  have hw0 := hC.truth_pos
+  obtain ⟨H, hH'⟩ := exists_pow_lt_of_lt_one (half_pos hΔ) hC.disc.γ_lt
+  have hH : 2 * γ ^ H < Δ := by linarith
+  have hL : 0 ≤ log (1 / w i₀) := by
+    refine Real.log_nonneg ?_
+    rw [le_div_iff₀ hw0, one_mul]
+    exact (hC.w_summable.le_tsum i₀ fun j _ => hC.w_nonneg j).trans hC.w_le
+  refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
+    lt_of_lt_of_le ha (Ex_loss_nonneg hC t), fun η hη => ?_⟩
+  -- a finite set carrying all but a small part of the prior
+  have hε₀ : 0 < w i₀ * (1 - exp (-(η / 2))) := by
+    refine mul_pos hw0 (sub_pos.2 ?_)
+    have := Real.exp_lt_exp.2 (show -(η / 2) < 0 by linarith)
+    rwa [Real.exp_zero] at this
+  obtain ⟨s, hs⟩ := ((tendsto_tsum_compl_atTop_zero w).eventually (gt_mem_nhds hε₀)).exists
+  have hsT : ∑' a : {a // a ∉ s}, w a = tailW w s := by
+    rw [show (∑' a : {a // a ∉ s}, w a) = ∑' a : ({a | a ∉ s} : Set ℕ), w a from rfl,
+      _root_.tsum_subtype]
+    refine tsum_congr fun i => ?_
+    by_cases hi : i ∈ s <;> simp [Set.indicator, hi]
+  rw [hsT] at hs
+  set F : Finset ℕ := insert i₀ (s.filter fun i => 0 < w i) with hF
+  have hi₀F : i₀ ∈ F := Finset.mem_insert_self _ _
+  have hFpos : ∀ i ∈ F, 0 < w i := by
+    intro i hi
+    rcases Finset.mem_insert.1 hi with rfl | hi
+    · exact hw0
+    · exact (Finset.mem_filter.1 hi).2
+  have htF : tailW w F ≤ tailW w s := by
+    refine Summable.tsum_le_tsum (fun i => ?_) (tailW_summable hC F) (tailW_summable hC s)
+    by_cases hiF : i ∈ F
+    · rw [if_pos hiF]; split_ifs <;> simp [hC.w_nonneg i]
+    · rw [if_neg hiF]
+      by_cases his : i ∈ s
+      · rw [if_pos his]
+        by_contra hc
+        exact hiF (Finset.mem_insert_of_mem (Finset.mem_filter.2 ⟨his, not_le.1 hc⟩))
+      · rw [if_neg his]
+  have hεF : tailW w F < w i₀ * (1 - exp (-(η / 2))) := lt_of_le_of_lt htF hs
+  have hε : tailW w F < w i₀ := by
+    have : w i₀ * (1 - exp (-(η / 2))) ≤ w i₀ := by
+      have := Real.exp_pos (-(η / 2))
+      nlinarith
+    linarith
+  have hδ : -log (1 - tailW w F / w i₀) ≤ η / 2 := by
+    have h1 : tailW w F / w i₀ < 1 - exp (-(η / 2)) := by
+      rw [div_lt_iff₀ hw0, mul_comm]
+      exact hεF
+    have h2 : exp (-(η / 2)) ≤ 1 - tailW w F / w i₀ := by linarith
+    have h3 := Real.log_le_log (Real.exp_pos _) h2
+    rw [Real.log_exp] at h3
+    linarith
+  -- the smallest weight on `F`
+  obtain ⟨j, hjF, hjmin⟩ := Finset.exists_min_image F w ⟨i₀, hi₀F⟩
+  have hsum : Summable fun t => Ex (piT ν w act) (ν i₀) t (badI ν act i₀ F) :=
+    summable_of_sum_range_le (fun t => Ex_badI_nonneg hC F t)
+      (fun T => sum_bad_le hC hH hi₀F (hFpos j hjF) hjmin T)
+  have hb := (hsum.tendsto_atTop_zero.const_mul (log (1 / w i₀)))
+  rw [mul_zero] at hb
+  filter_upwards [hb.eventually (gt_mem_nhds (half_pos hη))] with t ht
+  have := Ex_loss_le hC hε t
+  linarith
+
 end Thompson
 
 end HsiLean.ThompsonO2
