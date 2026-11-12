@@ -101,31 +101,60 @@ Theorem B has no rate that depends only on `w_μ`, `Δ`, `γ`.
   `ξ ≥ w μ` (the same): the content is that every later disagreement is paid for by a refutation.
 - Without the gap the proof fails at Lemma 2 only (`H` would have to depend on `h`).
 
-## 4. The stochastic case — SKETCH, not formalised
+## 4. The stochastic case — proof on paper (elementary; Lean status in RUN-REPORT.md)
 
-Claim: for a countable class of measures (the truth `μ` with a uniform gap, designated policies
-optimal and deterministic), `E[ℓ_t] → 0`.
+**Theorem C.** Countable class of semi-environments `ν_i` (stochastic), prior `w`, deterministic
+designated policies `act_i`, each optimal for its `ν_i` at every history; the truth `μ = ν_{i₀}` a
+measure with `w_μ > 0` and a uniform gap `Δ > 0`. Then `E^{π_T}_μ[ℓ_t] → 0`.
 
-1. *Tail.* `E_μ[Σ_{i∉F} w(i|h_t)] ≤ ε_F / w_μ`, because `E_μ[·] ≤ E_ξ[·]/w_μ` and the posterior mass of
-   a set is a `ξ`-martingale. So it suffices to treat each fixed rival `ν`.
-2. *Information budget.* Under the Bayes mixture the expected total information gain about the index
-   is at most the prior entropy; block the time axis into `H`-step blocks and change measure to `μ`:
-   `Σ_t E_μ[ w(ν|h_t) · TV_H(ν, μ | h_t)^2 ] < ∞`, where `TV_H` is the total variation between the
-   `H`-step futures of `ν` and `μ` from `h_t` **under π_T** (Pinsker + chain rule). (For a countable
-   class with infinite entropy, apply this to the class `F ∪ {rest lumped}`.)
-3. *Disagreement forces on-policy divergence.* If `act_ν(h) ≠ act_μ(h)` then, by the stochastic
-   version of Lemma 1 (simulation lemma) and the computation of Lemma 2, `ν` and `μ` differ by at
-   least `(Δ - 2γ^H)/2` in total variation on the `H`-step future of one of the two policies
-   `act_ν`, `act_μ`. Thompson sampling follows either with probability at least
-   `(w(·|h) × path likelihood)^H`, so `TV_H(ν,μ|h) ≥ κ(w(ν|h), w(μ|h)) > 0`, with `κ` increasing
-   in both weights (the low-likelihood paths are cut off at a threshold `η` and cost `|E|^H η`).
-4. *Conclude.* From 2 and 3, `1[disagree] · w(ν|h_t)` → 0 in probability on `{w(μ|h_t) ≥ δ w_μ}`,
-   whose complement has probability `≤ δ` (`posterior_uniform`). So the disagreeing mass → 0 in
-   probability; `ℓ_t ≤ ln(1/w(μ|h_t))` is uniformly integrable (`1/w(μ|h_t)` is a supermartingale);
-   so `E[ℓ_t] → 0`.
+Notation: `L_i(h)` is the likelihood of `h` under `ν_i`; `u_i(h) = w_i L_i(h)/ξ(h)` the posterior;
+`v = u_{i₀}`. Fix `H ≥ 1` with `2γ^H < Δ`, `c = (Δ - 2γ^H)/2`, `d = c/|E|^H`.
 
-I have not checked step 3's constants or step 2 with semimeasures in the class. No summability is
-expected here (stochastic bandits have logarithmic regret).
+**Step 1 (values along a policy).** For a deterministic policy `p` let `W^p_{ν,n}(h)` be the
+`n`-step truncated return of `p` in `ν` from `h` (`W_0 = 0`, `W_{n+1}(h) = Σ_e ν(e|h,p(h))
+[(1-γ)r(e) + γ W_n(h p(h) e)]`). Then `Q*_ν(h,p(h)) ≥ W^p_{ν,n}(h)`, and if `p` is optimal for `ν`
+everywhere, `Q*_ν(h,p(h)) ≤ W^p_{ν,n}(h) + γ^n`. (Stochastic Lemma 1; same proof.)
+
+**Step 2 (disagreement gives a path-level discrepancy).** At a `μ`-history `h` with
+`act_i(h) ≠ act_μ(h)`, the chain of Lemma 2 gives
+`[W^{act_i}_{ν_i,H} - W^{act_i}_{μ,H}](h) + [W^{act_μ}_{μ,H} - W^{act_μ}_{ν_i,H}](h) ≥ 2c`.
+So one bracket is `≥ c`. Claim: if `α W^p_{ρ,n}(h) - β W^p_{σ,n}(h) ≥ c' > 0` then there is a
+percept sequence `es` of length `≤ n` with `α ρ(es) - β σ(es) ≥ c'/|E|^n`, where `ρ(es)` is the
+probability of `es` when `p` is followed from `h`. (Induction on `n`: some first percept `e`
+carries `≥ c'/|E|` of the difference; it is a convex-type combination of `αρ(e) - βσ(e)` and of the
+same expression one step later with `α' = αρ(e)`, `β' = βσ(e)`.) Hence there is a path `es`,
+`|es| ≤ H`, along `p = act_k` for `k = i` or `k = i₀`, on which **the owner `k` of the policy
+gives the path probability at least `d` more than the other one does**. Write `x, y` for the two
+path probabilities; then `|√x - √y| ≥ d/2`.
+
+**Step 3 (Thompson sampling follows that path).** `π_T(act_k(h')|h') ≥ u_k(h')`, and along the path
+`u_k(h') ≥ u_k(h) · ν_k(prefix)` because `ξ` is non-increasing. So the action part of the path has
+`π_T`-probability at least `(u_k(h) · ν_k(es))^{|es|} ≥ (u_k(h) d)^H`.
+
+**Step 4 (the potential).** `Y_i(h) = √(L_i(h) L_μ(h))`. It is superharmonic for every action
+(`Σ_e √(ν_i(e)μ(e)) ≤ 1`), so `A_t = Σ_{|h|=t} π_T-part(h) Y_i(h) = E_μ√(L_i/L_μ)(h_t)` is
+non-increasing in `t`, and `≤ 1`. Over `n` steps from `h`,
+`Y_i(h) - Σ_σ π-part(σ) Y_i(hσ) ≥ Y_i(h) Σ_σ π-part(σ) ½(√x_σ - √y_σ)²`
+(equality for measures), and every term is `≥ 0`, so one path suffices:
+`Y_i(h) - (S^H Y_i)(h) ≥ κ · Y_i(h) · min(u_i(h), v(h))^H` at every `h` where `i` disagrees, with
+`κ = d^{H+2}/8`. Telescoping in steps of `H`:
+`Σ_t Σ_{|h|=t} π-part(h) Y_i(h) min(u_i,v)^H 1[i disagrees at h] ≤ H/κ`.   (★)
+
+**Step 5 (from (★) to the posterior mass of the disagreeing rival).** On `μ`-histories
+`Y_i = L_μ √(w_μ u_i/(w_i v)) ≥ L_μ √(w_μ u_i / w_i)`. For thresholds `θ, δ > 0`:
+`u_i 1[dis] ≤ θ + 1[v < δ] + 1[dis, u_i ≥ θ, v ≥ δ]`, the last indicator is at most
+`Y_i min(u_i,v)^H 1[dis] / (L_μ √(w_μ θ/w_i) min(θ,δ)^H)`, and `P_μ(v(h_t) < δ) ≤ δ/w_μ` (Markov on
+`ξ/L_μ`). So by (★) `limsup_t E_μ[u_i(h_t) 1[i disagrees at h_t]] ≤ θ + δ/w_μ` for all `θ, δ`: it is 0.
+
+**Step 6 (the loss).** `π_T(a*|h) = 1 - q(h)` with `q` the posterior mass of the disagreeing
+members, and `π_T(a*|h) ≥ v(h)`. For a finite `F`: `q ≤ Σ_{i∈F} u_i 1[dis_i] + Σ_{i∉F} u_i`, and
+`E_μ Σ_{i∉F} u_i(h_t) ≤ ε_F/w_μ` (the partial mixture is superharmonic). On `{v ≥ δ}`:
+`ℓ ≤ q · ln(1/δ)/(1-δ)`; on `{v < δ}`: `ℓ ≤ ln(1/v) ≤ 2√(1/v) ≤ 2√δ / v`, and
+`E_μ[1/v] ≤ 1/w_μ`. So `limsup E[ℓ_t] ≤ (ln(1/δ)/(1-δ)) ε_F/w_μ + 2√δ/w_μ`; let `F ↑` then `δ ↓ 0`. ∎
+
+No martingale convergence theorem and no merging-of-opinions theorem is used. No summability is
+claimed (stochastic bandits have logarithmic regret), and (★) gives no rate for `E[ℓ_t]` because of
+the thresholds.
 
 ## 5. What I tried as counterexamples
 
