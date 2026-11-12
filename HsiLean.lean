@@ -14,3 +14,4 @@ import HsiLean.WshEquiv
 import HsiLean.HsiMachines
 import HsiLean.TopModels
 import HsiLean.LossBound
+import HsiLean.ThompsonLogLoss
