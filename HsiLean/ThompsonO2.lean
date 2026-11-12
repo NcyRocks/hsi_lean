@@ -938,4 +938,133 @@ theorem thompson_O2_tendsto (hC : DetClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ)
 
 end Thompson
 
+/-! ### Non-vacuity: a two-armed bandit class satisfies `DetClass`, with positive loss
+
+Actions and percepts are `Bool`; the percept is the reward bit. In `bandit g` arm `g` pays `1`
+and the other arm pays `0`, at every step. The class is `{bandit true, bandit false}` with prior
+`1/2` each; each member's designated policy always pulls its paying arm. `Q*` is `1` on the
+paying arm and `γ` on the other, so the gap is `1 - γ`. At the first step Thompson sampling's
+loss is `ln 2 > 0`, so the theorems above are not about a class where the loss is already zero. -/
+
+section Example
+
+variable {γ : ℝ}
+
+/-- The two-armed bandit in which arm `g` pays. -/
+def bandit (g : Bool) : Env Bool Bool := fun _ a e => if e = decide (a = g) then 1 else 0
+
+/-- The reward of a percept bit. -/
+def rBit : Bool → ℝ := fun e => if e then 1 else 0
+
+lemma bandit_semi (g : Bool) : IsSemiEnv (bandit g) where
+  nonneg h a e := by unfold bandit; split_ifs <;> norm_num
+  sum_le h a := by
+    have e : ∑ e, bandit g h a e = 1 := by simp [bandit]
+    exact e.le
+
+lemma bandit_det (g : Bool) : IsDet (bandit g) := fun h a e => by
+  unfold bandit; split_ifs <;> simp
+
+lemma bandit_meas (g : Bool) (h : Hist Bool Bool) (a : Bool) : ∑ e, bandit g h a e = 1 := by
+  simp [bandit]
+
+lemma rBit_disc (h0 : 0 ≤ γ) (h1 : γ < 1) : IsDisc rBit γ :=
+  ⟨fun e => by unfold rBit; split_ifs <;> norm_num,
+    fun e => by unfold rBit; split_ifs <;> norm_num, h0, h1⟩
+
+lemma bandit_qval (g : Bool) (V : Hist Bool Bool → ℝ) (h : Hist Bool Bool) (a : Bool) :
+    qval rBit γ (bandit g) V h a =
+      (1 - γ) * rBit (decide (a = g)) + γ * V ((a, decide (a = g)) :: h) :=
+  qval_det (bandit_semi g) (by simp [bandit]) V
+
+lemma bandit_Vn (hd : IsDisc rBit γ) (g : Bool) (n : ℕ) (h : Hist Bool Bool) :
+    Vn rBit γ (bandit g) n h = 1 - γ ^ n := by
+  induction n generalizing h with
+  | zero => simp [Vn]
+  | succ n ih =>
+    simp only [Vn]
+    apply le_antisymm
+    · refine Finset.sup'_le _ _ fun a _ => ?_
+      rw [bandit_qval, ih, pow_succ]
+      nlinarith [mul_nonneg (sub_nonneg.2 hd.γ_lt.le) (sub_nonneg.2 (hd.r_le (decide (a = g))))]
+    · refine le_trans (le_of_eq ?_) (Finset.le_sup' (qval rBit γ (bandit g)
+        (Vn rBit γ (bandit g) n) h) (Finset.mem_univ g))
+      have e : rBit (decide (g = g)) = 1 := by simp [rBit]
+      rw [bandit_qval, ih, e]
+      ring
+
+lemma bandit_Vstar (hd : IsDisc rBit γ) (g : Bool) (h : Hist Bool Bool) :
+    Vstar rBit γ (bandit g) h = 1 := by
+  refine le_antisymm (Vstar_bounds hd (bandit_semi g) h).2 ?_
+  by_contra hc
+  obtain ⟨n, hn⟩ := exists_pow_lt_of_lt_one (sub_pos.2 (not_le.1 hc)) hd.γ_lt
+  have := Vn_le_Vstar hd (bandit_semi g) n h
+  rw [bandit_Vn hd] at this
+  linarith
+
+lemma bandit_Qstar (hd : IsDisc rBit γ) (g : Bool) (h : Hist Bool Bool) (a : Bool) :
+    Qstar rBit γ (bandit g) h a = if a = g then 1 else γ := by
+  rw [Qstar, bandit_qval, bandit_Vstar hd]
+  by_cases ha : a = g
+  · simp [rBit, ha]
+  · simp [rBit, ha]
+
+/-- The example class: member `0` is `bandit true`, every other member is `bandit false`. -/
+def exν (i : ℕ) : Env Bool Bool := bandit (decide (i = 0))
+
+/-- The example prior: `1/2` on members `0` and `1`. -/
+noncomputable def exw (i : ℕ) : ℝ := if i < 2 then 1 / 2 else 0
+
+/-- The example designated policies: always pull the paying arm. -/
+def exAct (i : ℕ) (_ : Hist Bool Bool) : Bool := decide (i = 0)
+
+lemma exw_summable : Summable exw :=
+  summable_of_ne_finset_zero (s := Finset.range 2) fun i hi => by
+    simp only [Finset.mem_range] at hi
+    simp [exw, hi]
+
+lemma exw_tsum : ∑' i, exw i = 1 := by
+  rw [tsum_eq_sum (s := Finset.range 2) fun i hi => by
+    simp only [Finset.mem_range] at hi
+    simp [exw, hi]]
+  simp [Finset.sum_range_succ, exw]
+  norm_num
+
+/-- [UNAPPROVED STATEMENT] **The hypotheses are satisfiable.** The two-armed bandit class
+satisfies `DetClass` with truth `bandit true` and uniform gap `1 - γ`, for every `γ ∈ [0,1)`. -/
+theorem example_detClass (h0 : 0 ≤ γ) (h1 : γ < 1) :
+    DetClass rBit γ exν exw exAct 0 (1 - γ) where
+  disc := rBit_disc h0 h1
+  semi i := bandit_semi _
+  det i := bandit_det _
+  w_nonneg i := by unfold exw; split_ifs <;> norm_num
+  w_summable := exw_summable
+  w_le := exw_tsum.le
+  opt i h b := by
+    simp only [exν, exAct, bandit_Qstar (rBit_disc h0 h1)]
+    split_ifs <;> linarith
+  truth_pos := by norm_num [exw]
+  truth_meas h a := bandit_meas _ h a
+  gap h _ a ha := by
+    simp only [exν, exAct, bandit_Qstar (rBit_disc h0 h1)]
+    have ha' : a ≠ true := by simpa [exAct] using ha
+    simp [ha']
+
+/-- [UNAPPROVED STATEMENT] **…and the loss is not already zero.** In the example class Thompson
+sampling's log loss on the optimal action at the first step is `ln 2`. -/
+theorem example_loss_pos : loss exν exw exAct 0 [] = log 2 := by
+  have hnum : ∀ i, exw i * lik (exν i) [] * detPol (exAct i) [] (exAct 0 []) =
+      if i = 0 then 1 / 2 else 0 := by
+    intro i
+    by_cases hi : i = 0
+    · simp [hi, exw, lik, detPol, exAct]
+    · simp [hi, lik, detPol, exAct]
+  have hT : piT exν exw exAct [] (exAct 0 []) = 2⁻¹ := by
+    unfold piT thompson
+    rw [xi_nil, exw_tsum, tsum_congr hnum, tsum_ite_eq]
+    norm_num
+  rw [loss, hT, Real.log_inv, neg_neg]
+
+end Example
+
 end HsiLean.ThompsonO2
