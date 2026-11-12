@@ -1228,6 +1228,269 @@ lemma exists_path (hd : IsDisc r γ) (hρ : IsSemiEnv ρ) (hσ : IsSemiEnv σ) (
       rw [hpow]
       linarith
 
+/-- [UNAPPROVED STATEMENT] **Stochastic Lemma 2: disagreement gives a path-level discrepancy.**
+`μ`, `ν` semi-environments, `pμ`, `pν` everywhere-optimal deterministic policies for them; at `h`
+the action `pν h` is worse than `pμ h` in `μ` by at least `Δ`, and `2 γ^H < Δ`. Then, with
+`d = (Δ - 2γ^H) / 2 / |E|^H`: either some percept sequence of length `≤ H` along `pν` is at least
+`d` more probable under `ν` than under `μ`, or some percept sequence of length `≤ H` along `pμ`
+is at least `d` more probable under `μ` than under `ν`. -/
+theorem disagree_path (hd : IsDisc r γ) {μ ν : Env A E} (hμ : IsSemiEnv μ) (hν : IsSemiEnv ν)
+    {pμ pν : Hist A E → A} (hoμ : ∀ h, IsOptAct r γ μ h (pμ h))
+    (hoν : ∀ h, IsOptAct r γ ν h (pν h)) {Δ : ℝ} {H : ℕ} (hH : 2 * γ ^ H < Δ) (h : Hist A E)
+    (hgap : Qstar r γ μ h (pν h) + Δ ≤ Qstar r γ μ h (pμ h)) :
+    (∃ es : List E, es.length ≤ H ∧ (Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H ≤
+        plik ν pν h es - plik μ pν h es) ∨
+    (∃ es : List E, es.length ≤ H ∧ (Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H ≤
+        plik μ pμ h es - plik ν pμ h es) := by
+  have a1 := Qstar_le_Wn hd hν hoν H h
+  have a2 := Wn_le_Qstar (p := pν) hd hμ H h
+  have a3 := Qstar_le_Wn hd hμ hoμ H h
+  have a4 := Wn_le_Qstar (p := pμ) hd hν H h
+  have a5 := hoν h (pμ h)
+  have hc : 0 < (Δ - 2 * γ ^ H) / 2 := by linarith
+  by_cases h1 : (Δ - 2 * γ ^ H) / 2 ≤ Wn r γ ν pν H h - Wn r γ μ pν H h
+  · left
+    obtain ⟨es, hlen, hes⟩ := exists_path hd hν hμ pν H h 1 1 _ zero_le_one zero_le_one hc
+      (by simpa using h1)
+    exact ⟨es, hlen, by simpa using hes⟩
+  · right
+    have h2 : (Δ - 2 * γ ^ H) / 2 ≤ Wn r γ μ pμ H h - Wn r γ ν pμ H h := by linarith
+    obtain ⟨es, hlen, hes⟩ := exists_path hd hμ hν pμ H h 1 1 _ zero_le_one zero_le_one hc
+      (by simpa using h2)
+    exact ⟨es, hlen, by simpa using hes⟩
+
 end StochValues
+
+/-! ### Sums over continuations, and the Hellinger potential -/
+
+section Potential
+
+/-- `SH π n F h`: the sum of `F` over the `n`-step continuations of `h`, weighted by the
+policy's action probabilities only (the conditional version of `S0`). -/
+noncomputable def SH (π : Policy A E) : ℕ → (Hist A E → ℝ) → Hist A E → ℝ
+  | 0, F, h => F h
+  | n + 1, F, h => ∑ a, π h a * ∑ e, SH π n F ((a, e) :: h)
+
+lemma SH_comm (π : Policy A E) (F : Hist A E → ℝ) (n : ℕ) (h : Hist A E) :
+    SH π n (SH π 1 F) h = SH π (n + 1) F h := by
+  induction n generalizing h with
+  | zero => rfl
+  | succ n ih =>
+    change (∑ a, π h a * ∑ e, SH π n (SH π 1 F) ((a, e) :: h)) =
+      ∑ a, π h a * ∑ e, SH π (n + 1) F ((a, e) :: h)
+    simp_rw [ih]
+
+/-- The Markov property for `S0`. -/
+lemma S0_markov (π : Policy A E) (t n : ℕ) (F : Hist A E → ℝ) :
+    S0 π (t + n) F = S0 π t (SH π n F) := by
+  induction n generalizing F with
+  | zero => rfl
+  | succ n ih =>
+    change S0 π (t + n) (fun h => ∑ a, π h a * ∑ e, F ((a, e) :: h)) = _
+    rw [ih]
+    congr 1
+    funext h
+    exact SH_comm π F n h
+
+lemma SH_add_steps (π : Policy A E) (F : Hist A E → ℝ) (n k : ℕ) (h : Hist A E) :
+    SH π (n + k) F h = SH π n (SH π k F) h := by
+  induction n generalizing h with
+  | zero => simp [SH]
+  | succ n ih =>
+    rw [Nat.succ_add]
+    simp only [SH]
+    simp_rw [ih]
+
+variable {π : Policy A E}
+
+lemma SH_mono (hπ : IsPolicy π) {F G : Hist A E → ℝ} (hFG : ∀ h, F h ≤ G h) (n : ℕ)
+    (h : Hist A E) : SH π n F h ≤ SH π n G h := by
+  induction n generalizing h with
+  | zero => exact hFG h
+  | succ n ih =>
+    simp only [SH]
+    exact Finset.sum_le_sum fun a _ => mul_le_mul_of_nonneg_left
+      (Finset.sum_le_sum fun e _ => ih _) (hπ.nonneg h a)
+
+lemma SH_nonneg (hπ : IsPolicy π) {F : Hist A E → ℝ} (hF : ∀ h, 0 ≤ F h) (n : ℕ)
+    (h : Hist A E) : 0 ≤ SH π n F h := by
+  induction n generalizing h with
+  | zero => exact hF h
+  | succ n ih =>
+    simp only [SH]
+    exact Finset.sum_nonneg fun a _ => mul_nonneg (hπ.nonneg h a)
+      (Finset.sum_nonneg fun e _ => ih _)
+
+lemma SH_super (hπ : IsPolicy π) {F : Hist A E → ℝ}
+    (hF : ∀ h a, ∑ e, F ((a, e) :: h) ≤ F h) (n : ℕ) (h : Hist A E) : SH π n F h ≤ F h := by
+  induction n generalizing h with
+  | zero => exact le_rfl
+  | succ n ih =>
+    simp only [SH]
+    calc ∑ a, π h a * ∑ e, SH π n F ((a, e) :: h) ≤ ∑ a, π h a * F h :=
+          Finset.sum_le_sum fun a _ => mul_le_mul_of_nonneg_left
+            ((Finset.sum_le_sum fun e _ => ih _).trans (hF h a)) (hπ.nonneg h a)
+      _ = F h := by rw [← Finset.sum_mul, hπ.sum_eq, one_mul]
+
+lemma SH_anti (hπ : IsPolicy π) {F : Hist A E → ℝ}
+    (hF : ∀ h a, ∑ e, F ((a, e) :: h) ≤ F h) {n m : ℕ} (hnm : n ≤ m) (h : Hist A E) :
+    SH π m F h ≤ SH π n F h := by
+  obtain ⟨k, rfl⟩ := Nat.exists_eq_add_of_le hnm
+  rw [SH_add_steps]
+  exact SH_mono hπ (SH_super hπ hF k) n h
+
+lemma SH_smul (π : Policy A E) (c : ℝ) (F : Hist A E → ℝ) (n : ℕ) (h : Hist A E) :
+    SH π n (fun h => c * F h) h = c * SH π n F h := by
+  induction n generalizing h with
+  | zero => rfl
+  | succ n ih =>
+    simp only [SH]
+    simp_rw [ih, ← Finset.mul_sum]
+    rw [Finset.mul_sum]
+    exact Finset.sum_congr rfl fun a _ => by ring
+
+lemma SH_add (π : Policy A E) (F G : Hist A E → ℝ) (n : ℕ) (h : Hist A E) :
+    SH π n (fun h => F h + G h) h = SH π n F h + SH π n G h := by
+  induction n generalizing h with
+  | zero => rfl
+  | succ n ih =>
+    simp only [SH]
+    simp_rw [ih, Finset.sum_add_distrib, mul_add, Finset.sum_add_distrib]
+
+/-- The probability that `π` plays the actions of `p` along the path `es` from `h`. -/
+noncomputable def ppol (π : Policy A E) (p : Hist A E → A) : Hist A E → List E → ℝ
+  | _, [] => 1
+  | h, e :: es => π h (p h) * ppol π p ((p h, e) :: h) es
+
+lemma ppol_nonneg (hπ : IsPolicy π) (p : Hist A E → A) (h : Hist A E) (es : List E) :
+    0 ≤ ppol π p h es := by
+  induction es generalizing h with
+  | nil => simp [ppol]
+  | cons e es ih => simp only [ppol]; exact mul_nonneg (hπ.nonneg _ _) (ih _)
+
+/-- One path is a lower bound for the sum over all continuations of a nonnegative function. -/
+lemma SH_path (hπ : IsPolicy π) {D : Hist A E → ℝ} (hD : ∀ h, 0 ≤ D h) (p : Hist A E → A)
+    (es : List E) (h : Hist A E) : ppol π p h es * D (ext p h es) ≤ SH π es.length D h := by
+  induction es generalizing h with
+  | nil => simp [ppol, ext, SH]
+  | cons e es ih =>
+    simp only [ppol, ext, List.length_cons, SH]
+    calc π h (p h) * ppol π p ((p h, e) :: h) es * D (ext p ((p h, e) :: h) es)
+        ≤ π h (p h) * SH π es.length D ((p h, e) :: h) := by
+          rw [mul_assoc]
+          exact mul_le_mul_of_nonneg_left (ih _) (hπ.nonneg _ _)
+      _ ≤ π h (p h) * ∑ e', SH π es.length D ((p h, e') :: h) :=
+          mul_le_mul_of_nonneg_left
+            (Finset.single_le_sum (f := fun e' => SH π es.length D ((p h, e') :: h))
+              (fun e' _ => SH_nonneg hπ hD _ _) (Finset.mem_univ e)) (hπ.nonneg _ _)
+      _ ≤ ∑ a, π h a * ∑ e', SH π es.length D ((a, e') :: h) :=
+          Finset.single_le_sum (f := fun a => π h a * ∑ e', SH π es.length D ((a, e') :: h))
+            (fun a _ => mul_nonneg (hπ.nonneg _ _)
+              (Finset.sum_nonneg fun e' _ => SH_nonneg hπ hD _ _)) (Finset.mem_univ (p h))
+
+/-- The Hellinger-affinity potential `Y(h) = √(ρ(h) · μ(h))`. -/
+noncomputable def Y (ρ μ : Env A E) (h : Hist A E) : ℝ := Real.sqrt (lik ρ h * lik μ h)
+
+omit [Fintype A] [Fintype E] in
+lemma sqrt_mul_le_avg {a b : ℝ} (ha : 0 ≤ a) (hb : 0 ≤ b) : Real.sqrt (a * b) ≤ (a + b) / 2 := by
+  rw [show a * b = Real.sqrt a ^ 2 * Real.sqrt b ^ 2 by
+    rw [Real.sq_sqrt ha, Real.sq_sqrt hb], ← mul_pow, Real.sqrt_sq
+      (mul_nonneg (Real.sqrt_nonneg a) (Real.sqrt_nonneg b))]
+  nlinarith [sq_nonneg (Real.sqrt a - Real.sqrt b), Real.sq_sqrt ha, Real.sq_sqrt hb]
+
+variable {ρ μ : Env A E}
+
+lemma lik_super (hρ : IsSemiEnv ρ) (h : Hist A E) (a : A) :
+    ∑ e, lik ρ ((a, e) :: h) ≤ lik ρ h := by
+  simp only [lik]
+  rw [← Finset.mul_sum]
+  exact mul_le_of_le_one_right (lik_nonneg hρ h) (hρ.sum_le h a)
+
+omit [Fintype A] [Fintype E] in
+lemma Y_nonneg (ρ μ : Env A E) (h : Hist A E) : 0 ≤ Y ρ μ h := Real.sqrt_nonneg _
+
+lemma Y_super (hρ : IsSemiEnv ρ) (hμ : IsSemiEnv μ) (h : Hist A E) (a : A) :
+    ∑ e, Y ρ μ ((a, e) :: h) ≤ Y ρ μ h := by
+  have e1 : ∀ e, Y ρ μ ((a, e) :: h) = Y ρ μ h * Real.sqrt (ρ h a e * μ h a e) := by
+    intro e
+    unfold Y
+    simp only [lik]
+    rw [← Real.sqrt_mul (mul_nonneg (lik_nonneg hρ h) (lik_nonneg hμ h))]
+    congr 1
+    ring
+  simp_rw [e1]
+  rw [← Finset.mul_sum]
+  refine mul_le_of_le_one_right (Y_nonneg ρ μ h) ?_
+  calc ∑ e, Real.sqrt (ρ h a e * μ h a e) ≤ ∑ e, (ρ h a e + μ h a e) / 2 :=
+        Finset.sum_le_sum fun e _ => sqrt_mul_le_avg (hρ.nonneg h a e) (hμ.nonneg h a e)
+    _ = (∑ e, ρ h a e + ∑ e, μ h a e) / 2 := by
+        simp_rw [div_eq_mul_inv]
+        rw [← Finset.sum_mul, Finset.sum_add_distrib]
+    _ ≤ 1 := by linarith [hρ.sum_le h a, hμ.sum_le h a]
+
+/-- The drop of the potential over the length of a path is at least the path's probability of
+being played times its Hellinger term. -/
+lemma Y_deficit (hπ : IsPolicy π) (hρ : IsSemiEnv ρ) (hμ : IsSemiEnv μ) (p : Hist A E → A)
+    (h : Hist A E) (es : List E) :
+    ppol π p h es * (Y ρ μ h * ((plik ρ p h es + plik μ p h es) / 2 -
+        Real.sqrt (plik ρ p h es * plik μ p h es))) ≤
+      Y ρ μ h - SH π es.length (Y ρ μ) h := by
+  have hsup := SH_super hπ (Y_super hρ hμ) es.length h
+  rcases (Y_nonneg ρ μ h).eq_or_lt with h0 | hpos
+  · rw [← h0] at hsup ⊢
+    simp only [zero_mul, mul_zero]
+    linarith
+  have hLρ := lik_nonneg hρ h
+  have hLμ := lik_nonneg hμ h
+  have hYsq : Y ρ μ h * Y ρ μ h = lik ρ h * lik μ h :=
+    Real.mul_self_sqrt (mul_nonneg hLρ hLμ)
+  -- the auxiliary nonnegative function
+  set D : Hist A E → ℝ := fun h' =>
+    (lik μ h / 2) * lik ρ h' + ((lik ρ h / 2) * lik μ h' + (-(Y ρ μ h)) * Y ρ μ h') with hD
+  have hYY : ∀ h', Y ρ μ h * Y ρ μ h' =
+      Real.sqrt ((lik μ h * lik ρ h') * (lik ρ h * lik μ h')) := by
+    intro h'
+    unfold Y
+    rw [← Real.sqrt_mul (mul_nonneg hLρ hLμ)]
+    congr 1
+    ring
+  have hD0 : ∀ h', 0 ≤ D h' := by
+    intro h'
+    have := sqrt_mul_le_avg (mul_nonneg hLμ (lik_nonneg hρ h'))
+      (mul_nonneg hLρ (lik_nonneg hμ h'))
+    rw [← hYY] at this
+    simp only [hD]
+    linarith
+  have hpath := SH_path hπ hD0 p es h
+  have hSH : SH π es.length D h = (lik μ h / 2) * SH π es.length (lik ρ) h +
+      ((lik ρ h / 2) * SH π es.length (lik μ) h +
+        (-(Y ρ μ h)) * SH π es.length (Y ρ μ) h) := by
+    simp only [hD]
+    rw [SH_add, SH_smul, SH_add, SH_smul, SH_smul]
+  have h1 := SH_super hπ (lik_super hρ) es.length h
+  have h2 := SH_super hπ (lik_super hμ) es.length h
+  have h3 := mul_le_mul_of_nonneg_left h1 (div_nonneg hLμ zero_le_two)
+  have h4 := mul_le_mul_of_nonneg_left h2 (div_nonneg hLρ zero_le_two)
+  have hDext : D (ext p h es) = Y ρ μ h * (Y ρ μ h * ((plik ρ p h es + plik μ p h es) / 2 -
+      Real.sqrt (plik ρ p h es * plik μ p h es))) := by
+    have hYext : Y ρ μ (ext p h es) =
+        Y ρ μ h * Real.sqrt (plik ρ p h es * plik μ p h es) := by
+      unfold Y
+      rw [lik_ext, lik_ext, ← Real.sqrt_mul (mul_nonneg hLρ hLμ)]
+      congr 1
+      ring
+    simp only [hD]
+    rw [lik_ext, lik_ext, hYext]
+    linear_combination (-(plik ρ p h es + plik μ p h es) / 2) * hYsq
+  rw [hDext] at hpath
+  -- divide by `Y h > 0`
+  have hfin : Y ρ μ h * (ppol π p h es * (Y ρ μ h * ((plik ρ p h es + plik μ p h es) / 2 -
+      Real.sqrt (plik ρ p h es * plik μ p h es)))) ≤
+      Y ρ μ h * (Y ρ μ h - SH π es.length (Y ρ μ) h) := by
+    rw [hSH] at hpath
+    nlinarith
+  exact le_of_mul_le_mul_left hfin hpos
+
+end Potential
 
 end HsiLean.ThompsonO2
