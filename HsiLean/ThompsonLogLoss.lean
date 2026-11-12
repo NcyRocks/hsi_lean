@@ -359,6 +359,145 @@ theorem Ex_one {π : Policy A E} (hπ : IsPolicy π) {μ : Env A E}
     simp only [lik]; rw [← Finset.mul_sum, hμ, mul_one]) t
   simpa [lik] using this
 
+/-! ### The uniform-in-time clause of Theorem 5 (Ville's inequality, finite horizon)
+
+The note: "with `P^π_μ`-probability at least `1 - δ`, simultaneously for all `t`,
+`KL(π_μ ‖ π_T)(h_{<t}) ≤ ln(1/(w_μ δ))`". Stated here for every finite horizon `n` (the event
+"some time-prefix of the length-`n` history is bad" has probability at most `δ`, for every `n`).
+A time-prefix of a newest-first history `h` is a list SUFFIX `s <:+ h`.
+
+Proof: the note's Ville step, done by hand. `pot h` is the truth's likelihood once a bad prefix
+has occurred and `δ ξ(h)` before; it is superharmonic, starts at most `δ`, and dominates the
+likelihood-weighted indicator of the bad event. -/
+
+lemma Ex_mono {π : Policy A E} (hπ : IsPolicy π) {μ : Env A E} (hμ : IsSemiEnv μ) (t : ℕ)
+    {f g : Hist A E → ℝ} (h : ∀ x, f x ≤ g x) : Ex π μ t f ≤ Ex π μ t g := by
+  rw [Ex_eq_S0, Ex_eq_S0]
+  exact S0_mono hπ t fun x => mul_le_mul_of_nonneg_left (h x) (lik_nonneg hμ x)
+
+section Uniform
+
+variable {ν : ℕ → Env A E} {w : ℕ → ℝ} {πd : ℕ → Policy A E}
+
+open Classical in
+/-- The stopped potential: the truth's likelihood once some time-prefix `s` has had
+`μ(s) ≤ δ ξ(s)` (posterior of the truth `≤ δ w_μ`), and `δ ξ(h)` before that. -/
+noncomputable def pot (ν : ℕ → Env A E) (w : ℕ → ℝ) (i₀ : ℕ) (δ : ℝ) (h : Hist A E) : ℝ :=
+  if ∃ s, s <:+ h ∧ lik (ν i₀) s ≤ δ * xi ν w s then lik (ν i₀) h else δ * xi ν w h
+
+lemma pot_super (hν : ∀ i, IsSemiEnv (ν i)) (hw0 : ∀ i, 0 ≤ w i) (hws : Summable w) (i₀ : ℕ)
+    (hμ : ∀ h a, ∑ e, ν i₀ h a e = 1) {δ : ℝ} (hδ : 0 ≤ δ) (h : Hist A E) (a : A) :
+    ∑ e, pot ν w i₀ δ ((a, e) :: h) ≤ pot ν w i₀ δ h := by
+  classical
+  by_cases hB : ∃ s, s <:+ h ∧ lik (ν i₀) s ≤ δ * xi ν w s
+  · have hc : ∀ e, pot ν w i₀ δ ((a, e) :: h) = lik (ν i₀) h * ν i₀ h a e := by
+      intro e
+      obtain ⟨s, hs, hbad⟩ := hB
+      have hB' : ∃ s, s <:+ (a, e) :: h ∧ lik (ν i₀) s ≤ δ * xi ν w s :=
+        ⟨s, hs.trans (List.suffix_cons _ _), hbad⟩
+      rw [pot, if_pos hB', lik]
+    have e1 : pot ν w i₀ δ h = lik (ν i₀) h := by rw [pot, if_pos hB]
+    simp_rw [hc]
+    exact (show ∑ e, lik (ν i₀) h * ν i₀ h a e = pot ν w i₀ δ h by
+      rw [← Finset.mul_sum, hμ, mul_one, e1]).le
+  · have hc : ∀ e, pot ν w i₀ δ ((a, e) :: h) ≤ δ * xi ν w ((a, e) :: h) := by
+      intro e
+      by_cases hB' : ∃ s, s <:+ (a, e) :: h ∧ lik (ν i₀) s ≤ δ * xi ν w s
+      · have e2 : pot ν w i₀ δ ((a, e) :: h) = lik (ν i₀) ((a, e) :: h) := by
+          rw [pot, if_pos hB']
+        obtain ⟨s, hs, hbad⟩ := hB'
+        rcases List.suffix_cons_iff.1 hs with hs' | hs'
+        · rw [e2, ← hs']; exact hbad
+        · exact absurd ⟨s, hs', hbad⟩ hB
+      · have e2 : pot ν w i₀ δ ((a, e) :: h) = δ * xi ν w ((a, e) :: h) := by
+          rw [pot, if_neg hB']
+        exact e2.le
+    have e1 : pot ν w i₀ δ h = δ * xi ν w h := by rw [pot, if_neg hB]
+    calc ∑ e, pot ν w i₀ δ ((a, e) :: h) ≤ ∑ e, δ * xi ν w ((a, e) :: h) :=
+          Finset.sum_le_sum fun e _ => hc e
+      _ = δ * ∑ e, xi ν w ((a, e) :: h) := by rw [Finset.mul_sum]
+      _ ≤ δ * xi ν w h := mul_le_mul_of_nonneg_left (xi_super hν hw0 hws h a) hδ
+      _ = pot ν w i₀ δ h := e1.symm
+
+lemma pot_nil_le (hw1 : ∑' i, w i ≤ 1) (i₀ : ℕ) {δ : ℝ} (hδ : 0 ≤ δ) :
+    pot ν w i₀ δ ([] : Hist A E) ≤ δ := by
+  classical
+  have hxi : xi ν w ([] : Hist A E) ≤ 1 := xi_nil.le.trans hw1
+  have hle : δ * xi ν w ([] : Hist A E) ≤ δ :=
+    (mul_le_mul_of_nonneg_left hxi hδ).trans_eq (mul_one δ)
+  by_cases hB : ∃ s, s <:+ ([] : Hist A E) ∧ lik (ν i₀) s ≤ δ * xi ν w s
+  · have e1 : pot ν w i₀ δ ([] : Hist A E) = lik (ν i₀) [] := by rw [pot, if_pos hB]
+    obtain ⟨s, hs, hbad⟩ := hB
+    have hs0 : s = [] := List.suffix_nil.1 hs
+    rw [hs0] at hbad
+    rw [e1]
+    exact hbad.trans hle
+  · have e1 : pot ν w i₀ δ ([] : Hist A E) = δ * xi ν w [] := by rw [pot, if_neg hB]
+    rw [e1]
+    exact hle
+
+open Classical in
+/-- [UNAPPROVED STATEMENT] **Ville's inequality for the truth's posterior, any policy.**
+Hypotheses as in `thompson_per_step`, `δ ≥ 0`. For every horizon `n`, the `P^π_μ`-probability
+that at SOME time `t ≤ n` the truth's likelihood is at most `δ` times the mixture's (i.e. its
+interventional posterior weight `w(μ | h_{<t})` is at most `δ · w_μ`) is at most `δ`. -/
+theorem posterior_uniform (hν : ∀ i, IsSemiEnv (ν i)) (hw0 : ∀ i, 0 ≤ w i) (hws : Summable w)
+    (hw1 : ∑' i, w i ≤ 1) (i₀ : ℕ) (hμ : ∀ h a, ∑ e, ν i₀ h a e = 1) (π : Policy A E)
+    (hπ : IsPolicy π) {δ : ℝ} (hδ : 0 ≤ δ) (n : ℕ) :
+    Ex π (ν i₀) n
+      (fun h => if ∃ s, s <:+ h ∧ lik (ν i₀) s ≤ δ * xi ν w s then 1 else 0) ≤ δ := by
+  rw [Ex_eq_S0]
+  refine (S0_mono hπ n (G := pot ν w i₀ δ) fun h => ?_).trans
+    ((S0_super hπ (pot_super hν hw0 hws i₀ hμ hδ) n).trans (pot_nil_le hw1 i₀ hδ))
+  by_cases hB : ∃ s, s <:+ h ∧ lik (ν i₀) s ≤ δ * xi ν w s
+  · have e1 : pot ν w i₀ δ h = lik (ν i₀) h := by rw [pot, if_pos hB]
+    rw [if_pos hB, mul_one, e1]
+  · have e1 : pot ν w i₀ δ h = δ * xi ν w h := by rw [pot, if_neg hB]
+    rw [if_neg hB, mul_zero, e1]
+    exact mul_nonneg hδ (xi_nonneg hν hw0 h)
+
+/-- Where the truth's likelihood exceeds `δ ξ`, the KL is at most `ln(1/(w_μ δ))`. -/
+lemma kl_le_of_good (hν : ∀ i, IsSemiEnv (ν i)) (hw0 : ∀ i, 0 ≤ w i) (hws : Summable w)
+    (hπd : ∀ i, IsPolicy (πd i)) (i₀ : ℕ) (hi₀ : 0 < w i₀) {δ : ℝ} (hδ : 0 < δ) (s : Hist A E)
+    (hgood : δ * xi ν w s < lik (ν i₀) s) :
+    0 < lik (ν i₀) s ∧
+      klAct (πd i₀ s) (thompson ν w πd s) ≤ log (1 / (w i₀ * δ)) := by
+  have hL : 0 < lik (ν i₀) s :=
+    lt_of_le_of_lt (mul_nonneg hδ.le (xi_nonneg hν hw0 s)) hgood
+  have hξpos : 0 < xi ν w s := lt_of_lt_of_le (mul_pos hi₀ hL) (le_xi hν hw0 hws i₀ s)
+  refine ⟨hL, (kl_le hν hw0 hws hπd i₀ hi₀ s hL).trans
+    (Real.log_le_log (div_pos hξpos (mul_pos hi₀ hL)) ?_)⟩
+  rw [div_le_div_iff₀ (mul_pos hi₀ hL) (mul_pos hi₀ hδ)]
+  nlinarith [mul_le_mul_of_nonneg_left hgood.le hi₀.le]
+
+open Classical in
+/-- [UNAPPROVED STATEMENT] **Theorem 5, uniform-in-time clause (finite horizon).**
+Hypotheses as in `thompson_per_step`, `δ > 0`. For every horizon `n`, with `P^π_μ`-probability
+at least `1 - δ`, at EVERY time `t ≤ n` the history so far has positive probability under the
+truth and `KL(π_μ ‖ π_T)(h_{<t}) ≤ ln(1 / (w_μ δ))`. Stated as: the probability that some
+time-prefix fails this is at most `δ`. -/
+theorem thompson_uniform (hν : ∀ i, IsSemiEnv (ν i)) (hw0 : ∀ i, 0 ≤ w i) (hws : Summable w)
+    (hw1 : ∑' i, w i ≤ 1) (hπd : ∀ i, IsPolicy (πd i)) (i₀ : ℕ) (hi₀ : 0 < w i₀)
+    (hμ : ∀ h a, ∑ e, ν i₀ h a e = 1) (π : Policy A E) (hπ : IsPolicy π) {δ : ℝ} (hδ : 0 < δ)
+    (n : ℕ) :
+    Ex π (ν i₀) n
+      (fun h => if ∃ s, s <:+ h ∧ ¬ (0 < lik (ν i₀) s ∧
+        klAct (πd i₀ s) (thompson ν w πd s) ≤ log (1 / (w i₀ * δ))) then 1 else 0) ≤ δ := by
+  refine (Ex_mono hπ (hν i₀) n fun h => ?_).trans
+    (posterior_uniform hν hw0 hws hw1 i₀ hμ π hπ hδ.le n)
+  by_cases h1 : ∃ s, s <:+ h ∧ ¬ (0 < lik (ν i₀) s ∧
+      klAct (πd i₀ s) (thompson ν w πd s) ≤ log (1 / (w i₀ * δ)))
+  · have h2 : ∃ s, s <:+ h ∧ lik (ν i₀) s ≤ δ * xi ν w s := by
+      obtain ⟨s, hs, hnot⟩ := h1
+      refine ⟨s, hs, ?_⟩
+      by_contra hgood
+      exact hnot (kl_le_of_good hν hw0 hws hπd i₀ hi₀ hδ s (not_le.1 hgood))
+    rw [if_pos h1, if_pos h2]
+  · rw [if_neg h1]
+    split_ifs <;> norm_num
+
+end Uniform
+
 /-- For a deterministic designated policy the KL is the log loss on its action. -/
 lemma klAct_pointmass [DecidableEq A] (p q : A → ℝ) (a₀ : A)
     (hp : ∀ a, p a = if a = a₀ then 1 else 0) : klAct p q = -log (q a₀) := by
