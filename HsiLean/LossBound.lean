@@ -452,6 +452,85 @@ theorem unit_loss_bound_fn {μ ξ : List Bool → ℝ} {w : ℝ} (hμ : IsStrMea
     relEnt_nonneg hμ hξ hw hdom n,
     (relEnt_eq_klTotal hμ hξ hw hdom n).le.trans (klTotal_le hμ hw hdom n)⟩
 
+/-! ### The general loss bound -/
+
+lemma expLoss_scale (ρ : List Bool → ℝ) (l : List Bool → Bool → 𝒴 → ℝ) (lmin lΔ : ℝ)
+    (x : List Bool) (a : 𝒴) :
+    expLoss ρ (fun x b a => (l x b a - lmin) / lΔ) x a =
+      (expLoss ρ l x a - (cond ρ x false + cond ρ x true) * lmin) / lΔ := by
+  unfold expLoss; ring
+
+/-- Rescaling the loss rescales the total expected loss: `L' = (L - n·lmin)/lΔ`. -/
+lemma cumLoss_scale (hμ : IsStrMeasure μ) (l : List Bool → Bool → 𝒴 → ℝ) (lmin lΔ : ℝ)
+    (p : List Bool → 𝒴) (n : ℕ) :
+    cumLoss μ (fun x b a => (l x b a - lmin) / lΔ) p n = (cumLoss μ l p n - n * lmin) / lΔ := by
+  have hx : ∀ (x : List Bool) (a : 𝒴),
+      μ x * expLoss μ (fun x b a => (l x b a - lmin) / lΔ) x a =
+        (μ x * expLoss μ l x a - μ x * lmin) / lΔ := by
+    intro x a
+    rw [expLoss_scale]
+    rcases (hμ.nonneg x).eq_or_lt with h0 | hpos
+    · rw [← h0]; simp
+    · rw [cond_add hμ hpos.ne']; ring
+  have inner : ∀ t, ∑ x ∈ strs t, μ x * expLoss μ (fun x b a => (l x b a - lmin) / lΔ) x (p x) =
+      (∑ x ∈ strs t, μ x * expLoss μ l x (p x) - lmin) / lΔ := by
+    intro t
+    rw [Finset.sum_congr rfl (fun x _ => hx x (p x)), ← Finset.sum_div, Finset.sum_sub_distrib,
+      ← Finset.sum_mul, sum_strs_eq_one hμ, one_mul]
+  unfold cumLoss
+  rw [Finset.sum_congr rfl (fun t _ => inner t), ← Finset.sum_div, Finset.sum_sub_distrib]
+  simp
+
+/-- [UNAPPROVED STATEMENT] **Hutter's general loss bound** (`thGLoss`): as
+`unit_loss_bound_fn`, but with losses in `[lmin, lmin + lΔ]`, `lΔ > 0`:
+
+`0 ≤ L_ξ - L_μ ≤ lΔ H_n + √(4 (L_μ - n·lmin) lΔ H_n + lΔ² H_n²)`.
+
+(Proof as in the paper: rescale the loss to `[0,1]`; the Bayes-optimal predictors do not
+change.) -/
+theorem general_loss_bound_fn (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+    (hdom : ∀ x, w * μ x ≤ ξ x) {l : List Bool → Bool → 𝒴 → ℝ} {lmin lΔ : ℝ} (hΔ : 0 < lΔ)
+    (hl : ∀ x b a, lmin ≤ l x b a ∧ l x b a ≤ lmin + lΔ)
+    {pμ pξ : List Bool → 𝒴} (hoptμ : IsBayesOpt μ l pμ) (hoptξ : IsBayesOpt ξ l pξ) (n : ℕ) :
+    0 ≤ cumLoss μ l pξ n - cumLoss μ l pμ n ∧
+    cumLoss μ l pξ n - cumLoss μ l pμ n ≤
+      lΔ * relEnt μ ξ n +
+        Real.sqrt (4 * (cumLoss μ l pμ n - n * lmin) * lΔ * relEnt μ ξ n +
+          lΔ ^ 2 * relEnt μ ξ n ^ 2) := by
+  have hl' : ∀ x b a, 0 ≤ (l x b a - lmin) / lΔ ∧ (l x b a - lmin) / lΔ ≤ 1 := fun x b a =>
+    ⟨div_nonneg (sub_nonneg.2 (hl x b a).1) hΔ.le,
+      (div_le_one hΔ).2 (by linarith [(hl x b a).2])⟩
+  have hopt' : ∀ (ρ : List Bool → ℝ) (p : List Bool → 𝒴), IsBayesOpt ρ l p →
+      IsBayesOpt ρ (fun x b a => (l x b a - lmin) / lΔ) p := by
+    intro ρ p h x a
+    rw [expLoss_scale, expLoss_scale]
+    exact div_le_div_of_nonneg_right (sub_le_sub_right (h x a) _) hΔ.le
+  obtain ⟨h1, h2, -, -⟩ := unit_loss_bound_fn hμ hξ hw hdom hl' (hopt' _ _ hoptμ)
+    (hopt' _ _ hoptξ) n
+  rw [cumLoss_scale hμ, cumLoss_scale hμ] at h1 h2
+  obtain ⟨Lξ, hLξ⟩ : ∃ L, L = cumLoss μ l pξ n := ⟨_, rfl⟩
+  obtain ⟨Lμ, hLμ⟩ : ∃ L, L = cumLoss μ l pμ n := ⟨_, rfl⟩
+  obtain ⟨H, hH⟩ : ∃ H, H = relEnt μ ξ n := ⟨_, rfl⟩
+  rw [← hLξ, ← hLμ] at h1
+  rw [← hLξ, ← hLμ, ← hH] at h2
+  rw [← hLξ, ← hLμ, ← hH]
+  have e : (Lξ - n * lmin) / lΔ - (Lμ - n * lmin) / lΔ = (Lξ - Lμ) / lΔ := by ring
+  rw [e] at h1 h2
+  refine ⟨?_, ?_⟩
+  · by_contra hc
+    have : (Lξ - Lμ) / lΔ < 0 := div_neg_of_neg_of_pos (not_le.1 hc) hΔ
+    linarith
+  · have h5 := mul_le_mul_of_nonneg_left h2 hΔ.le
+    have e3 : lΔ * ((Lξ - Lμ) / lΔ) = Lξ - Lμ := by field_simp
+    have h6 : lΔ * Real.sqrt (4 * ((Lμ - n * lmin) / lΔ) * H + H ^ 2) =
+        Real.sqrt (lΔ ^ 2 * (4 * ((Lμ - n * lmin) / lΔ) * H + H ^ 2)) := by
+      rw [Real.sqrt_mul (sq_nonneg lΔ), Real.sqrt_sq hΔ.le]
+    have h7 : lΔ ^ 2 * (4 * ((Lμ - n * lmin) / lΔ) * H + H ^ 2) =
+        4 * (Lμ - n * lmin) * lΔ * H + lΔ ^ 2 * H ^ 2 := by
+      field_simp
+    rw [e3, mul_add, h6, h7] at h5
+    exact h5
+
 end Fn
 
 /-- The bound is monotone in `H`, and implies the simpler `2D + 2√(L D)`. -/
