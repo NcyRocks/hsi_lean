@@ -59,6 +59,15 @@ supermartingale under `P^π_μ`; Jensen. All three steps are used here, in this 
 
 One point the note leaves implicit: on histories of `P^π_μ`-probability zero the posterior and
 the KL are undefined. Step 2 is stated so that those histories contribute zero.
+
+## Results
+
+* `thompson_per_step` — Theorem 5 (KL form); `thompson_per_step_det` — the `-ln π_T(a*)` form.
+* `posterior_uniform`, `thompson_uniform` — the theorem's "with probability `1 - δ`, for all `t`
+  at once" clause, at every finite horizon.
+* `thompson_per_step_tight` — the bound is attained at every step in a degenerate class (same
+  environment, different designated policies), so it cannot be summed.
+* `Ex_one`, `Ex_step_one`, `Ex_eq_S0` — sanity checks on the definition of `Ex`.
 -/
 
 open Real Finset
@@ -524,5 +533,50 @@ theorem thompson_per_step_det [DecidableEq A] {ν : ℕ → Env A E} {w : ℕ �
     funext fun h => klAct_pointmass _ _ (astar h) (hdet h)
   rw [e] at h
   exact h
+
+/-- [UNAPPROVED STATEMENT] Sanity check on `Ex`: at horizon one it is the sum over the first
+action and percept. -/
+theorem Ex_step_one (π : Policy A E) (μ : Env A E) (f : Hist A E → ℝ) :
+    Ex π μ 1 f = ∑ a, ∑ e, π [] a * μ [] a e * f [(a, e)] := by
+  show Ex π μ (0 + 1) f = _
+  simp only [Ex]
+
+/-- [UNAPPROVED STATEMENT] **The per-step bound is attained at every step, so it cannot be
+summed.** Take a class whose members all have the SAME environment `μ` but different designated
+policies: member `0` plays `astar h` for certain, every other member never plays it. No percept
+ever separates the members, the posterior never moves, and for every behaviour policy and every
+`t` the expected log loss on the optimal action is EXACTLY `ln(1 / w 0)`. So under the hypotheses
+of `thompson_per_step` the sum over `t ≤ n` can be `n · ln(1 / w_μ)`.
+
+(This is the limiting case `D = ∞` of the note's delay example, where the two environments
+differ but are indistinguishable for the first `D` steps.) -/
+theorem thompson_per_step_tight {μ : Env A E} (hμ : ∀ h a, ∑ e, μ h a e = 1) {w : ℕ → ℝ}
+    (hw1 : ∑' i, w i = 1) {πd : ℕ → Policy A E} (astar : Hist A E → A)
+    (hstar : ∀ h, πd 0 h (astar h) = 1) (hothers : ∀ i, i ≠ 0 → ∀ h, πd i h (astar h) = 0)
+    (π : Policy A E) (hπ : IsPolicy π) (t : ℕ) :
+    Ex π μ t (fun h => -log (thompson (fun _ => μ) w πd h (astar h))) = log (1 / w 0) := by
+  have hx : ∀ h, xi (fun _ => μ) w h = lik μ h := by
+    intro h
+    unfold xi
+    rw [tsum_mul_right, hw1, one_mul]
+  have hnum : ∀ h, ∑' i, w i * lik μ h * πd i h (astar h) = w 0 * lik μ h := by
+    intro h
+    rw [tsum_eq_single 0 (fun i hi => by rw [hothers i hi, mul_zero]), hstar, mul_one]
+  have hT : ∀ h, lik μ h ≠ 0 → thompson (fun _ => μ) w πd h (astar h) = w 0 := by
+    intro h hL
+    have e : thompson (fun _ => μ) w πd h (astar h) =
+        (∑' i, w i * lik μ h * πd i h (astar h)) / xi (fun _ => μ) w h := rfl
+    rw [e, hnum, hx, mul_div_assoc, div_self hL, mul_one]
+  rw [Ex_eq_S0]
+  have hfun : (fun h => lik μ h * -log (thompson (fun _ => μ) w πd h (astar h))) =
+      (fun h => lik μ h * log (1 / w 0)) := by
+    funext h
+    by_cases hL : lik μ h = 0
+    · rw [hL, zero_mul, zero_mul]
+    · rw [hT h hL, one_div, Real.log_inv]
+  rw [hfun, S0_harm hπ (F := fun h => lik μ h * log (1 / w 0)) (fun h a => by
+    simp only [lik]
+    rw [← Finset.sum_mul, ← Finset.mul_sum, hμ, mul_one]) t]
+  simp [lik]
 
 end HsiLean.ThompsonLogLoss
