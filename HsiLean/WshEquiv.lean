@@ -354,10 +354,11 @@ theorem exists_padded_enum (R : Machine) (c : ℕ) :
     beta_reduce
     rw [if_neg (by omega), Nat.add_sub_cancel]
 
-/-- [UNAPPROVED STATEMENT] WSH Lemma 13: every universal mixture is the Solomonoff prior
-of some UTM, off the empty string. -/
-theorem universalMixture_is_utm (ξ : Semimeasure) (hξ : IsUniversalMixture ξ) :
-    ∃ U : Machine, IsUTM U ∧ ∀ x, x ≠ [] → U.lam x = ξ x := by
+/-- [UNAPPROVED STATEMENT] WSH Lemma 13, exact form: every universal mixture is the
+Solomonoff semimeasure `sm` of some UTM, including at the empty string (where `sm` is the
+measure of the programs on which the machine has any pair). -/
+theorem universalMixture_is_utm_sm (ξ : Semimeasure) (hξ : IsUniversalMixture ξ) :
+    ∃ U : Machine, IsUTM U ∧ U.sm = ξ := by
   obtain ⟨ν, w, hν, hνc, rfl⟩ := hξ
   have hτ : UniformlyEnumerable (fun e => (enumMachine e).sm) :=
     sm_uniformlyEnumerable enumMachine_uniformlyCE
@@ -377,8 +378,8 @@ theorem universalMixture_is_utm (ξ : Semimeasure) (hξ : IsUniversalMixture ξ)
   obtain ⟨V, hV, hVc, hVR, hVT⟩ := exists_padded_enum R (n + 1)
   refine ⟨prefixMachine V unaryCode hV unaryCode_computable unaryCode_prefixFree,
     prefixMachine_isUTM V unaryCode hV unaryCode_computable unaryCode_prefixFree hVc, ?_⟩
-  intro x hx
-  rw [Machine.lam_of_ne _ hx, sm_eq_of_produces _ V unaryCode unaryCode_prefixFree x
+  refine Semimeasure.ext fun x => ?_
+  rw [sm_eq_of_produces _ V unaryCode unaryCode_prefixFree x
     (fun q => prefixMachine_produces V unaryCode hV unaryCode_computable unaryCode_prefixFree q x)]
   simp_rw [unaryCode_length]
   have hsplit : ∑ i ∈ Finset.range (n + 1), (2⁻¹ : ℝ≥0∞) ^ (i + 1) * (V i).sm x +
@@ -411,6 +412,13 @@ theorem universalMixture_is_utm (ξ : Semimeasure) (hξ : IsUniversalMixture ξ)
   refine tsum_congr fun i => ?_
   rw [← add_mul, hw' i]
 
+/-- [UNAPPROVED STATEMENT] WSH Lemma 13: every universal mixture is the Solomonoff prior
+of some UTM, off the empty string. -/
+theorem universalMixture_is_utm (ξ : Semimeasure) (hξ : IsUniversalMixture ξ) :
+    ∃ U : Machine, IsUTM U ∧ ∀ x, x ≠ [] → U.lam x = ξ x := by
+  obtain ⟨U, hU, h⟩ := universalMixture_is_utm_sm ξ hξ
+  exact ⟨U, hU, fun x hx => by rw [U.lam_of_ne hx, h]⟩
+
 /-! ### Theorem 14 -/
 
 /-- [UNAPPROVED STATEMENT] WSH Theorem 14: the class of Solomonoff priors of UTMs equals the
@@ -426,5 +434,52 @@ theorem solomonoff_eq_universalMixtures :
   · rintro ⟨ξ, hξ, rfl⟩
     obtain ⟨U, hU, h⟩ := universalMixture_is_utm ξ hξ
     exact ⟨U, hU, funext fun x => (h x.1 x.2).symm⟩
+
+/-! ### HSI's class = SolInd's class, stated about machines (`cor:um=umum=solind=hsi`) -/
+
+/-- [UNAPPROVED STATEMENT] The paper's `cor:um=umum=solind=hsi`, stated about machines.
+Let `V` be any effective enumeration of monotone machines that contains every UTM (it may
+contain any other machines too). Then the class of HSI priors over `V` — the mixtures
+`Σ_k w_k P_{V k}` with lower-semicomputable positive weights summing to `≤ 1` — equals the
+class of Solomonoff priors of UTMs, as functions on the non-empty strings. -/
+theorem hsi_eq_solomonoff (V : ℕ → Machine) (hV : UniformlyCE V)
+    (hU : ∀ U : Machine, IsUTM U → ∃ k, V k = U) :
+    {f : {x : List Bool // x ≠ []} → ℝ≥0∞ |
+        ∃ w : Weights, f = fun x => ∑' k, w k * (V k).lam x.1} =
+      {f | ∃ U : Machine, IsUTM U ∧ f = fun x => U.lam x.1} := by
+  rw [solomonoff_eq_universalMixtures]
+  have hc : ContainsAllUniversalMixtures (fun k => (V k).sm) := by
+    intro ξ hξ
+    obtain ⟨U, hU', h⟩ := universalMixture_is_utm_sm ξ hξ
+    obtain ⟨k, hk⟩ := hU U hU'
+    refine ⟨k, ?_⟩
+    change (V k).sm = ξ
+    rw [hk, h]
+  have hs := mixtureClass_eq_universalMixtures' _ (sm_uniformlyEnumerable hV) hc
+  have key : ∀ (w : Weights) (x : {x : List Bool // x ≠ []}),
+      ∑' k, w k * (V k).lam x.1 = mixture (fun k => (V k).sm) w x.1 := by
+    intro w x
+    rw [mixture_apply]
+    exact tsum_congr fun k => by rw [(V k).lam_of_ne x.2]
+  ext f
+  constructor
+  · rintro ⟨w, rfl⟩
+    have hm : mixture (fun k => (V k).sm) w ∈ MixtureClass (fun k => (V k).sm) := ⟨w, rfl⟩
+    rw [hs] at hm
+    exact ⟨_, hm, funext fun x => key w x⟩
+  · rintro ⟨ξ, hξ, rfl⟩
+    have hm : ξ ∈ MixtureClass (fun k => (V k).sm) := by rw [hs]; exact hξ
+    obtain ⟨w, rfl⟩ := hm
+    exact ⟨w, funext fun x => (key w x).symm⟩
+
+/-- [UNAPPROVED STATEMENT] `hsi_eq_solomonoff` is not vacuous: the standard enumeration of
+ALL monotone machines satisfies its hypotheses, so HSI over all machines has exactly the
+Solomonoff priors of UTMs as its priors (off the empty string). -/
+theorem hsi_eq_solomonoff_enum :
+    {f : {x : List Bool // x ≠ []} → ℝ≥0∞ |
+        ∃ w : Weights, f = fun x => ∑' k, w k * (enumMachine k).lam x.1} =
+      {f | ∃ U : Machine, IsUTM U ∧ f = fun x => U.lam x.1} :=
+  hsi_eq_solomonoff enumMachine enumMachine_uniformlyCE
+    (fun U _ => enumMachine_complete U)
 
 end HsiLean.Monotone
