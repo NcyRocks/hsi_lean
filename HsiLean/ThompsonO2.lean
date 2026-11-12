@@ -1549,7 +1549,22 @@ end Potential
 section StochThompson
 
 variable [DecidableEq A] [Nonempty A] {r : E → ℝ} {γ : ℝ} {ν : ℕ → Env A E} {w : ℕ → ℝ}
-  {act : ℕ → Hist A E → A} {i₀ : ℕ} {Δ : ℝ}
+  {act : ℕ → Hist A E → A} {i₀ : ℕ} {Δ : ℝ} {Bad : ℕ → Hist A E → Prop}
+
+/-- [UNAPPROVED STATEMENT] **A Bayesian class with optimal designated policies (no gap).** A
+countable class `ν i` of semi-environments with prior weights `w i ≥ 0`, `Σ w ≤ 1`; member `i`'s
+designated policy is the deterministic policy `act i`, optimal for `ν i` at every history; the
+truth `ν i₀` is a measure of positive weight. -/
+structure OptClass (r : E → ℝ) (γ : ℝ) (ν : ℕ → Env A E) (w : ℕ → ℝ)
+    (act : ℕ → Hist A E → A) (i₀ : ℕ) : Prop where
+  disc : IsDisc r γ
+  semi : ∀ i, IsSemiEnv (ν i)
+  w_nonneg : ∀ i, 0 ≤ w i
+  w_summable : Summable w
+  w_le : ∑' i, w i ≤ 1
+  opt : ∀ i h, IsOptAct r γ (ν i) h (act i h)
+  truth_pos : 0 < w i₀
+  truth_meas : ∀ h a, ∑ e, ν i₀ h a e = 1
 
 /-- [UNAPPROVED STATEMENT] **The hypotheses of O2 (stochastic).** As `DetClass` without
 determinism: a countable class `ν i` of semi-environments with prior weights `w i`; member `i`'s
@@ -1574,26 +1589,29 @@ lemma DetClass.toGapClass (hC : DetClass r γ ν w act i₀ Δ) : GapClass r γ 
   ⟨hC.disc, hC.semi, hC.w_nonneg, hC.w_summable, hC.w_le, hC.opt, hC.truth_pos, hC.truth_meas,
     hC.gap⟩
 
+lemma GapClass.toOptClass (hC : GapClass r γ ν w act i₀ Δ) : OptClass r γ ν w act i₀ :=
+  ⟨hC.disc, hC.semi, hC.w_nonneg, hC.w_summable, hC.w_le, hC.opt, hC.truth_pos, hC.truth_meas⟩
+
 /-- The interventional posterior weight `w(k | h) = w_k ν_k(h) / ξ(h)`. -/
 noncomputable def post (ν : ℕ → Env A E) (w : ℕ → ℝ) (k : ℕ) (h : Hist A E) : ℝ :=
   w k * lik (ν k) h / xi ν w h
 
-lemma GapClass.piP_isPolicy (hC : GapClass r γ ν w act i₀ Δ) : IsPolicy (piP ν w act i₀) :=
+lemma OptClass.piP_isPolicy (hC : OptClass r γ ν w act i₀) : IsPolicy (piP ν w act i₀) :=
   thompsonP_isPolicy hC.semi hC.w_nonneg hC.w_summable (fun _ => detPol_isPolicy _)
     (detPol_isPolicy _)
 
-lemma post_nonneg (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E) :
+lemma post_nonneg (hC : OptClass r γ ν w act i₀) (k : ℕ) (h : Hist A E) :
     0 ≤ post ν w k h :=
   div_nonneg (mul_nonneg (hC.w_nonneg k) (lik_nonneg (hC.semi k) h))
     (xi_nonneg hC.semi hC.w_nonneg h)
 
-lemma post_le_one (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E) :
+lemma post_le_one (hC : OptClass r γ ν w act i₀) (k : ℕ) (h : Hist A E) :
     post ν w k h ≤ 1 :=
   div_le_one_of_le₀ (le_xi hC.semi hC.w_nonneg hC.w_summable k h)
     (xi_nonneg hC.semi hC.w_nonneg h)
 
 /-- Thompson sampling plays member `k`'s action with probability at least `k`'s posterior. -/
-lemma piP_ge_post (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E) :
+lemma piP_ge_post (hC : OptClass r γ ν w act i₀) (k : ℕ) (h : Hist A E) :
     post ν w k h ≤ piP ν w act i₀ h (act k h) := by
   by_cases hξ : xi ν w h = 0
   · have e : post ν w k h = 0 := by simp [post, hξ]
@@ -1607,7 +1625,7 @@ lemma piP_ge_post (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E)
     rw [h2, mul_one] at h1
     simpa [piP, thompsonP, hξ, post] using h1
 
-lemma post_step (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E) (a : A) (e : E) :
+lemma post_step (hC : OptClass r γ ν w act i₀) (k : ℕ) (h : Hist A E) (a : A) (e : E) :
     post ν w k h * ν k h a e ≤ post ν w k ((a, e) :: h) := by
   have hnum : 0 ≤ w k * lik (ν k) ((a, e) :: h) :=
     mul_nonneg (hC.w_nonneg k) (lik_nonneg (hC.semi k) _)
@@ -1628,7 +1646,7 @@ lemma post_step (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (h : Hist A E) (
 
 /-- Step 3 of the draft: Thompson sampling follows a path of member `k`'s policy with
 probability at least `(w(k|h) · ν_k(path))^{length}`. -/
-lemma ppol_ge (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (es : List E) :
+lemma ppol_ge (hC : OptClass r γ ν w act i₀) (k : ℕ) (es : List E) :
     ∀ h : Hist A E, (post ν w k h * plik (ν k) (act k) h es) ^ es.length ≤
       ppol (piP ν w act i₀) (act k) h es := by
   induction es with
@@ -1661,18 +1679,21 @@ lemma ppol_ge (hC : GapClass r γ ν w act i₀ Δ) (k : ℕ) (es : List E) :
       (mul_le_mul h1 h2 (pow_nonneg (mul_nonneg (post_nonneg hC k _) hx.1) _)
         (hC.piP_isPolicy.nonneg _ _))
 
-/-- The indicator that member `i` disagrees with the truth about the optimal action at `h`. -/
-noncomputable def disI (act : ℕ → Hist A E → A) (i₀ i : ℕ) (h : Hist A E) : ℝ :=
-  if act i h ≠ act i₀ h then 1 else 0
+open Classical in
+/-- The indicator of `Bad i h`. In the O2 theorem `Bad i h` is "member `i` disagrees with the
+truth about the optimal action at `h`"; in the no-gap theorem it is "member `i`'s action at `h`
+is `Δ`-suboptimal in the truth". -/
+noncomputable def indI (Bad : ℕ → Hist A E → Prop) (i : ℕ) (h : Hist A E) : ℝ :=
+  if Bad i h then 1 else 0
 
-/-- The summand of (★): `Y_i(h) · min(w(i|h), w(μ|h))^H · 1[i disagrees at h]`. -/
-noncomputable def Bterm (ν : ℕ → Env A E) (w : ℕ → ℝ) (act : ℕ → Hist A E → A) (i₀ : ℕ)
+/-- The summand of (★): `Y_i(h) · min(w(i|h), w(μ|h))^H · 1[Bad i h]`. -/
+noncomputable def Bterm (ν : ℕ → Env A E) (w : ℕ → ℝ) (Bad : ℕ → Hist A E → Prop) (i₀ : ℕ)
     (H i : ℕ) (h : Hist A E) : ℝ :=
-  Y (ν i) (ν i₀) h * min (post ν w i h) (post ν w i₀ h) ^ H * disI act i₀ i h
+  Y (ν i) (ν i₀) h * min (post ν w i h) (post ν w i₀ h) ^ H * indI Bad i h
 
-lemma Bterm_nonneg (hC : GapClass r γ ν w act i₀ Δ) (H i : ℕ) (h : Hist A E) :
-    0 ≤ Bterm ν w act i₀ H i h := by
-  unfold Bterm disI
+lemma Bterm_nonneg (hC : OptClass r γ ν w act i₀) (H i : ℕ) (h : Hist A E) :
+    0 ≤ Bterm ν w Bad i₀ H i h := by
+  unfold Bterm indI
   have h1 := Y_nonneg (ν i) (ν i₀) h
   have h2 : 0 ≤ min (post ν w i h) (post ν w i₀ h) ^ H :=
     pow_nonneg (le_min (post_nonneg hC i h) (post_nonneg hC i₀ h)) H
@@ -1682,21 +1703,23 @@ lemma Bterm_nonneg (hC : GapClass r γ ν w act i₀ Δ) (H i : ℕ) (h : Hist A
 
 /-- Step 4 of the draft: at every history, over `H` steps the potential of rival `i` drops by at
 least `κ · Y_i(h) · min(w(i|h), w(μ|h))^H` if `i` disagrees with the truth at `h`. -/
-lemma keyS (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ) (i : ℕ)
+lemma keyS (hC : OptClass r γ ν w act i₀) {H : ℕ} (hH : 2 * γ ^ H < Δ) (i : ℕ)
+    (hBad : ∀ h, lik (ν i₀) h ≠ 0 → Bad i h →
+      Qstar r γ (ν i₀) h (act i h) + Δ ≤ Qstar r γ (ν i₀) h (act i₀ h))
     (h : Hist A E) :
     SH (piP ν w act i₀) H (Y (ν i) (ν i₀)) h ≤
       -(((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8) *
-        Bterm ν w act i₀ H i h + Y (ν i) (ν i₀) h := by
+        Bterm ν w Bad i₀ H i h + Y (ν i) (ν i₀) h := by
   have hπ := hC.piP_isPolicy
   have hYs := Y_super (hC.semi i) (hC.semi i₀)
   have hsup := SH_super hπ hYs H h
-  by_cases hdis : act i h ≠ act i₀ h
+  by_cases hdis : Bad i h
   swap
-  · have e : Bterm ν w act i₀ H i h = 0 := by simp [Bterm, disI, hdis]
+  · have e : Bterm ν w Bad i₀ H i h = 0 := by simp [Bterm, indI, hdis]
     rw [e, mul_zero, zero_add]
     exact hsup
   rcases (Y_nonneg (ν i) (ν i₀) h).eq_or_lt with h0 | hpos
-  · have e : Bterm ν w act i₀ H i h = 0 := by simp [Bterm, ← h0]
+  · have e : Bterm ν w Bad i₀ H i h = 0 := by simp [Bterm, ← h0]
     rw [e, mul_zero, zero_add]
     exact hsup
   have hlμ : lik (ν i₀) h ≠ 0 := by
@@ -1715,8 +1738,8 @@ lemma keyS (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ
   set m : ℝ := min (post ν w i h) (post ν w i₀ h) with hm
   have hm0 : 0 ≤ m := le_min (post_nonneg hC i h) (post_nonneg hC i₀ h)
   have hm1 : m ≤ 1 := (min_le_left _ _).trans (post_le_one hC i h)
-  have hB : Bterm ν w act i₀ H i h = Y (ν i) (ν i₀) h * m ^ H := by
-    simp [Bterm, disI, hdis, hm]
+  have hB : Bterm ν w Bad i₀ H i h = Y (ν i) (ν i₀) h * m ^ H := by
+    simp [Bterm, indI, hdis, hm]
   have halg : d ^ (H + 2) / 8 * (Y (ν i) (ν i₀) h * m ^ H) =
       (m * d) ^ H * (Y (ν i) (ν i₀) h * (d ^ 2 / 8)) := by
     rw [mul_pow, pow_add]
@@ -1738,7 +1761,7 @@ lemma keyS (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ
         (mul_nonneg hpos.le (by positivity)) hpp0
     rw [neg_mul, halg]
     linarith
-  have hgap := hC.gap h hlμ (act i h) hdis
+  have hgap := hBad h hlμ hdis
   rcases disagree_path hC.disc (hC.semi i₀) (hC.semi i) (hC.opt i₀) (hC.opt i) hH h hgap with
     ⟨es, hlen, hes⟩ | ⟨es, hlen, hes⟩
   · have hx := plik_bounds (p := act i) (hC.semi i) h es
@@ -1765,26 +1788,30 @@ lemma keyS (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ
     · exact mul_le_one₀ hm1 hd0.le (hdx.trans hx.2)
 
 /-- [UNAPPROVED STATEMENT] **(★) of the draft: the information budget of a rival.** Under
-`GapClass` with `2 γ^H < Δ`, for every member `i` and horizon `T`, with
+`OptClass` (no gap assumed), let `2 γ^H < Δ` and let `Bad i h` be any condition on histories that,
+at histories of positive probability under the truth, implies that member `i`'s action is worse
+than the truth's by at least `Δ` in the truth's `Q*`. Then for every horizon `T`, with
 `κ = ((Δ - 2γ^H)/2/|E|^H)^(H+2) / 8`:
 
-  `κ · Σ_{t<T} Σ_{|h|=t} π_T-part(h) · √(ν_i(h) μ(h)) · min(w(i|h), w(μ|h))^H · 1[i disagrees at h] ≤ H`.
+  `κ · Σ_{t<T} Σ_{|h|=t} π_T-part(h) · √(ν_i(h) μ(h)) · min(w(i|h), w(μ|h))^H · 1[Bad i h] ≤ H`.
 
 Here `Σ_{|h|=t} π_T-part(h) √(ν_i(h) μ(h)) f(h) = E_μ[√(ν_i(h_t)/μ(h_t)) f(h_t)]`. -/
-theorem sum_Bterm_le (hC : GapClass r γ ν w act i₀ Δ) {H : ℕ} (hH : 2 * γ ^ H < Δ) (i : ℕ)
+theorem sum_Bterm_le (hC : OptClass r γ ν w act i₀) {H : ℕ} (hH : 2 * γ ^ H < Δ) (i : ℕ)
+    (hBad : ∀ h, lik (ν i₀) h ≠ 0 → Bad i h →
+      Qstar r γ (ν i₀) h (act i h) + Δ ≤ Qstar r γ (ν i₀) h (act i₀ h))
     (T : ℕ) :
     ((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8 *
-      ∑ t ∈ Finset.range T, S0 (piP ν w act i₀) t (Bterm ν w act i₀ H i) ≤ H := by
+      ∑ t ∈ Finset.range T, S0 (piP ν w act i₀) t (Bterm ν w Bad i₀ H i) ≤ H := by
   have hπ := hC.piP_isPolicy
   have hYs := Y_super (hC.semi i) (hC.semi i₀)
   have h := telescope_bound (fun t => S0 (piP ν w act i₀) t (Y (ν i) (ν i₀)))
-    (fun t => S0 (piP ν w act i₀) t (Bterm ν w act i₀ H i))
+    (fun t => S0 (piP ν w act i₀) t (Bterm ν w Bad i₀ H i))
     (((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8) 1 H
     (fun t => S0_nonneg hπ t (Y_nonneg _ _))
     (fun t => (S0_super hπ hYs t).trans (by simp [Y, lik]))
     (fun t => by
       rw [S0_markov, ← S0_lin]
-      exact S0_mono hπ t fun h => keyS hC hH i h) T
+      exact S0_mono hπ t fun h => keyS hC hH i hBad h) T
   simpa using h
 
 /-! ### From the information budget to the log loss -/
@@ -1821,44 +1848,44 @@ lemma S0_sum (π : Policy A E) (t : ℕ) (s : Finset ℕ) (f : ℕ → Hist A E 
     simp_rw [Finset.sum_insert ha]
     rw [S0_add, ih]
 
-lemma GapClass.card_pos (hC : GapClass r γ ν w act i₀ Δ) : 0 < Fintype.card E := by
+lemma OptClass.card_pos (hC : OptClass r γ ν w act i₀) : 0 < Fintype.card E := by
   rw [Fintype.card_pos_iff]
   by_contra hne
   rw [not_nonempty_iff] at hne
   have := hC.truth_meas [] (Classical.arbitrary A)
   simp at this
 
-omit [Fintype A] [Fintype E] [Nonempty A] in
-lemma disI_nonneg (act : ℕ → Hist A E → A) (i₀ i : ℕ) (h : Hist A E) : 0 ≤ disI act i₀ i h := by
-  unfold disI
+omit [Fintype A] [Fintype E] [DecidableEq A] [Nonempty A] in
+lemma indI_nonneg (Bad : ℕ → Hist A E → Prop) (i : ℕ) (h : Hist A E) : 0 ≤ indI Bad i h := by
+  unfold indI
   split_ifs <;> norm_num
 
 /-- Step 5 of the draft, pointwise: the truth-weighted posterior mass of a disagreeing rival is
 at most a threshold term, a small-posterior-of-the-truth term, and a multiple of the summand of
 (★). -/
-lemma eI_le (hC : GapClass r γ ν w act i₀ Δ) (H i : ℕ) (hwi : 0 < w i) {θ δ : ℝ} (hθ : 0 < θ)
+lemma eI_le (hC : OptClass r γ ν w act i₀) (H i : ℕ) (hwi : 0 < w i) {θ δ : ℝ} (hθ : 0 < θ)
     (hδ : 0 < δ) (h : Hist A E) :
-    lik (ν i₀) h * (post ν w i h * disI act i₀ i h) ≤
+    lik (ν i₀) h * (post ν w i h * indI Bad i h) ≤
       θ * lik (ν i₀) h + ((δ / w i₀) * xi ν w h +
-        (1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H)) * Bterm ν w act i₀ H i h) := by
+        (1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H)) * Bterm ν w Bad i₀ H i h) := by
   have hw0 := hC.truth_pos
   have hL := lik_nonneg (hC.semi i₀) h
   have hξ := xi_nonneg hC.semi hC.w_nonneg h
-  have hB := Bterm_nonneg hC H i h
+  have hB := Bterm_nonneg (Bad := Bad) hC H i h
   have hu1 := post_le_one hC i h
   have hs : 0 < Real.sqrt (w i₀ * θ / w i) := Real.sqrt_pos.2 (div_pos (mul_pos hw0 hθ) hwi)
   have hmin : 0 < min θ δ := lt_min hθ hδ
   have hK : 0 < Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H := mul_pos hs (pow_pos hmin H)
   have ht1 : 0 ≤ θ * lik (ν i₀) h := mul_nonneg hθ.le hL
   have ht2 : 0 ≤ δ / w i₀ * xi ν w h := mul_nonneg (div_nonneg hδ.le hw0.le) hξ
-  have ht3 : 0 ≤ 1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w act i₀ H i h :=
+  have ht3 : 0 ≤ 1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w Bad i₀ H i h :=
     mul_nonneg (one_div_nonneg.2 hK.le) hB
-  by_cases hdis : act i h ≠ act i₀ h
+  by_cases hdis : Bad i h
   swap
-  · have e : disI act i₀ i h = 0 := by simp [disI, hdis]
+  · have e : indI Bad i h = 0 := by simp [indI, hdis]
     rw [e, mul_zero, mul_zero]
     linarith
-  have hd1 : disI act i₀ i h = 1 := by simp [disI, hdis]
+  have hd1 : indI Bad i h = 1 := by simp [indI, hdis]
   rw [hd1, mul_one]
   have hLu : lik (ν i₀) h * post ν w i h ≤ lik (ν i₀) h := mul_le_of_le_one_right hL hu1
   by_cases hu : post ν w i h < θ
@@ -1902,32 +1929,34 @@ lemma eI_le (hC : GapClass r γ ν w act i₀ Δ) (H i : ℕ) (hwi : 0 < w i) {�
     have := mul_le_mul_of_nonneg_left h2 hL
     nlinarith
   have hBge : lik (ν i₀) h * (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) ≤
-      Bterm ν w act i₀ H i h := by
+      Bterm ν w Bad i₀ H i h := by
     unfold Bterm
     rw [hd1, mul_one, ← mul_assoc]
     exact mul_le_mul hY hmH (pow_nonneg hmin.le H) (Y_nonneg _ _ _)
   have : lik (ν i₀) h ≤
-      1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w act i₀ H i h := by
+      1 / (Real.sqrt (w i₀ * θ / w i) * min θ δ ^ H) * Bterm ν w Bad i₀ H i h := by
     rw [one_div, ← div_eq_inv_mul, le_div_iff₀ hK]
     exact hBge
   linarith
 
-lemma GapClass.S0_lik (hC : GapClass r γ ν w act i₀ Δ) (t : ℕ) :
+lemma OptClass.S0_lik (hC : OptClass r γ ν w act i₀) (t : ℕ) :
     S0 (piP ν w act i₀) t (lik (ν i₀)) = 1 := by
   have := S0_harm hC.piP_isPolicy (F := lik (ν i₀)) (fun h a => by
     simp only [lik]; rw [← Finset.mul_sum, hC.truth_meas, mul_one]) t
   simpa [lik] using this
 
-lemma GapClass.S0_xi (hC : GapClass r γ ν w act i₀ Δ) (t : ℕ) :
+lemma OptClass.S0_xi (hC : OptClass r γ ν w act i₀) (t : ℕ) :
     S0 (piP ν w act i₀) t (xi ν w) ≤ 1 :=
   ((S0_super hC.piP_isPolicy (xi_super hC.semi hC.w_nonneg hC.w_summable) t).trans_eq
     xi_nil).trans hC.w_le
 
 /-- Step 5 of the draft: the expected posterior mass of a rival, at the times it disagrees with
 the truth about the optimal action, tends to zero. -/
-lemma tendsto_eI (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) (i : ℕ) (hwi : 0 < w i) :
+lemma tendsto_eI (hC : OptClass r γ ν w act i₀) (hΔ : 0 < Δ) (i : ℕ) (hwi : 0 < w i)
+    (hBad : ∀ h, lik (ν i₀) h ≠ 0 → Bad i h →
+      Qstar r γ (ν i₀) h (act i h) + Δ ≤ Qstar r γ (ν i₀) h (act i₀ h)) :
     Filter.Tendsto (fun t => S0 (piP ν w act i₀) t
-      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h))) Filter.atTop (nhds 0) := by
+      (fun h => lik (ν i₀) h * (post ν w i h * indI Bad i h))) Filter.atTop (nhds 0) := by
   have hπ := hC.piP_isPolicy
   have hw0 := hC.truth_pos
   obtain ⟨H, hH'⟩ := exists_pow_lt_of_lt_one (half_pos hΔ) hC.disc.γ_lt
@@ -1937,16 +1966,16 @@ lemma tendsto_eI (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) (i : ℕ) 
     exact pow_pos this H
   have hκ : 0 < ((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8 :=
     div_pos (pow_pos (div_pos (by linarith) hM) _) (by norm_num)
-  have hsum : Summable fun t => S0 (piP ν w act i₀) t (Bterm ν w act i₀ H i) :=
+  have hsum : Summable fun t => S0 (piP ν w act i₀) t (Bterm ν w Bad i₀ H i) :=
     summable_of_sum_range_le (fun t => S0_nonneg hπ t (Bterm_nonneg hC H i))
       (c := H / (((Δ - 2 * γ ^ H) / 2 / (Fintype.card E : ℝ) ^ H) ^ (H + 2) / 8))
       (fun T => by
         rw [le_div_iff₀ hκ, mul_comm]
-        exact sum_Bterm_le hC hH i T)
+        exact sum_Bterm_le hC hH i hBad T)
   have hnn : ∀ t, 0 ≤ S0 (piP ν w act i₀) t
-      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) := fun t =>
+      (fun h => lik (ν i₀) h * (post ν w i h * indI Bad i h)) := fun t =>
     S0_nonneg hπ t fun h => mul_nonneg (lik_nonneg (hC.semi i₀) h)
-      (mul_nonneg (post_nonneg hC i h) (disI_nonneg act i₀ i h))
+      (mul_nonneg (post_nonneg hC i h) (indI_nonneg Bad i h))
   refine tendsto_order.2 ⟨fun a ha => Filter.Eventually.of_forall fun t =>
     lt_of_lt_of_le ha (hnn t), fun η hη => ?_⟩
   have hθ : 0 < η / 3 := by linarith
@@ -1955,7 +1984,7 @@ lemma tendsto_eI (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < Δ) (i : ℕ) 
     (1 / (Real.sqrt (w i₀ * (η / 3) / w i) * min (η / 3) (w i₀ * η / 3) ^ H))
   rw [mul_zero] at hb
   filter_upwards [hb.eventually (gt_mem_nhds hθ)] with t ht
-  have h1 := S0_mono hπ t (eI_le hC H i hwi hθ hδ)
+  have h1 := S0_mono hπ t (eI_le (Bad := Bad) hC H i hwi hθ hδ)
   rw [S0_lin, S0_lin, S0_smul, hC.S0_lik] at h1
   have h2 := hC.S0_xi t
   have h3 : w i₀ * η / 3 / w i₀ = η / 3 := by field_simp
@@ -1985,10 +2014,11 @@ lemma neg_log_le_div {δ P : ℝ} (hδ : 0 < δ) (hδP : δ ≤ P) (hP1 : P ≤ 
   linarith
 
 /-- Step 6 of the draft, pointwise. -/
-lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ : ℝ} (hδ0 : 0 < δ)
+lemma loss_pointwise (hC : OptClass r γ ν w act i₀)
+    (hBadDis : ∀ i h, act i h ≠ act i₀ h → Bad i h) (F : Finset ℕ) {δ : ℝ} (hδ0 : 0 < δ)
     (h : Hist A E) :
     lik (ν i₀) h * loss ν w act i₀ h ≤
-      (1 / δ) * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) +
+      (1 / δ) * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h)) +
         ((1 / δ / w i₀) * xi ν (fun i => if i ∈ F then 0 else w i) h +
           (2 * Real.sqrt δ / w i₀) * xi ν w h) := by
   have hw0 := hC.truth_pos
@@ -2000,10 +2030,10 @@ lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ 
     Summable.of_nonneg_of_le hw'0 (fun i => by
       by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]) hC.w_summable
   have hξ' := xi_nonneg (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 h
-  have hsumnn : 0 ≤ ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) :=
+  have hsumnn : 0 ≤ ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h) :=
     Finset.sum_nonneg fun i _ => mul_nonneg hL
-      (mul_nonneg (post_nonneg hC i h) (disI_nonneg act i₀ i h))
-  have ht1 : 0 ≤ 1 / δ * ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) :=
+      (mul_nonneg (post_nonneg hC i h) (indI_nonneg Bad i h))
+  have ht1 : 0 ≤ 1 / δ * ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h) :=
     mul_nonneg (one_div_nonneg.2 hδ0.le) hsumnn
   have ht2 : 0 ≤ 1 / δ / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h :=
     mul_nonneg (div_nonneg (one_div_nonneg.2 hδ0.le) hw0.le) hξ'
@@ -2041,13 +2071,13 @@ lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ 
     -- `(1 - P) ξ ≤ Σ_F w_i L_i dis_i + ξ'`
     have hsl := summable_lik hC.semi hC.w_nonneg hC.w_summable h
     have hsl' := summable_lik (w := fun i => if i ∈ F then 0 else w i) hC.semi hw'0 hw's h
-    have hsF : Summable fun i => if i ∈ F then w i * lik (ν i) h * disI act i₀ i h else 0 :=
+    have hsF : Summable fun i => if i ∈ F then w i * lik (ν i) h * indI Bad i h else 0 :=
       summable_of_ne_finset_zero (s := F) fun i hi => if_neg hi
-    have hFsum : ∑' i, (if i ∈ F then w i * lik (ν i) h * disI act i₀ i h else 0) =
-        ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h := by
+    have hFsum : ∑' i, (if i ∈ F then w i * lik (ν i) h * indI Bad i h else 0) =
+        ∑ i ∈ F, w i * lik (ν i) h * indI Bad i h := by
       rw [tsum_eq_sum (s := F) fun i hi => if_neg hi]
       exact Finset.sum_congr rfl fun i hi => if_pos hi
-    have hnum : xi ν w h - ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h -
+    have hnum : xi ν w h - ∑ i ∈ F, w i * lik (ν i) h * indI Bad i h -
         xi ν (fun i => if i ∈ F then 0 else w i) h ≤
         ∑' i, w i * lik (ν i) h * detPol (act i) h (act i₀ h) := by
       rw [← hFsum]
@@ -2059,9 +2089,12 @@ lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ 
       by_cases hiF : i ∈ F
       · by_cases hdis : act i h ≠ act i₀ h
         · have hne : ¬ act i₀ h = act i h := fun hc => hdis hc.symm
-          simp [hiF, disI, hdis, detPol, hne]
+          simp [hiF, indI, hBadDis i h hdis, detPol, hne]
         · have heq : act i h = act i₀ h := not_not.1 hdis
-          simp [hiF, disI, detPol, heq]
+          have hI := indI_nonneg Bad i h
+          have hdp : detPol (act i) h (act i₀ h) = 1 := by simp [detPol, heq]
+          simp only [hiF, if_true, hdp, mul_one, zero_mul, sub_zero]
+          nlinarith [mul_nonneg hwl hI]
       · have h2 : 0 ≤ w i * lik (ν i) h * detPol (act i) h (act i₀ h) :=
           mul_nonneg hwl ((hπd i).nonneg _ _)
         simp only [hiF, if_false, sub_zero]
@@ -2075,21 +2108,21 @@ lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ 
       rw [div_le_div_iff₀ hξpos hw0]
       linarith
     have hmain : lik (ν i₀) h * (1 - piT ν w act h (act i₀ h)) ≤
-        ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) +
+        ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h) +
           1 / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h := by
       have e1 : lik (ν i₀) h * (1 - piT ν w act h (act i₀ h)) =
           lik (ν i₀) h / xi ν w h *
             (xi ν w h - piT ν w act h (act i₀ h) * xi ν w h) := by
         field_simp
-      have e2 : ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) =
-          lik (ν i₀) h / xi ν w h * ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h := by
+      have e2 : ∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h) =
+          lik (ν i₀) h / xi ν w h * ∑ i ∈ F, w i * lik (ν i) h * indI Bad i h := by
         rw [Finset.mul_sum]
         refine Finset.sum_congr rfl fun i _ => ?_
         unfold post
         field_simp
       rw [e1, e2]
       have h5 : xi ν w h - piT ν w act h (act i₀ h) * xi ν w h ≤
-          ∑ i ∈ F, w i * lik (ν i) h * disI act i₀ i h +
+          ∑ i ∈ F, w i * lik (ν i) h * indI Bad i h +
             xi ν (fun i => if i ∈ F then 0 else w i) h := by
         rw [hPξ]
         linarith
@@ -2104,9 +2137,9 @@ lemma loss_pointwise (hC : GapClass r γ ν w act i₀ Δ) (F : Finset ℕ) {δ 
           ≤ lik (ν i₀) h * ((1 - piT ν w act h (act i₀ h)) / δ) := this
         _ = 1 / δ * (lik (ν i₀) h * (1 - piT ν w act h (act i₀ h))) := by ring
     have h9 := mul_le_mul_of_nonneg_left hmain (one_div_nonneg.2 hδ0.le)
-    have h10 : 1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h) +
+    have h10 : 1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h) +
         1 / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h) =
-        1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * disI act i₀ i h)) +
+        1 / δ * (∑ i ∈ F, lik (ν i₀) h * (post ν w i h * indI Bad i h)) +
           1 / δ / w i₀ * xi ν (fun i => if i ∈ F then 0 else w i) h := by
       ring
     linarith
@@ -2151,7 +2184,8 @@ theorem thompson_O2_stochastic (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < 
     Filter.Tendsto (fun t => Ex (piT ν w act) (ν i₀) t (loss ν w act i₀)) Filter.atTop
       (nhds 0) := by
   classical
-  have hπ := hC.piP_isPolicy
+  have hO := hC.toOptClass
+  have hπ := hO.piP_isPolicy
   have hw0 := hC.truth_pos
   -- rewrite the expectation as a weighted sum under the completed policy
   have hEx : ∀ t, Ex (piT ν w act) (ν i₀) t (loss ν w act i₀) =
@@ -2167,7 +2201,6 @@ theorem thompson_O2_stochastic (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < 
   have hnn : ∀ t, 0 ≤ S0 (piP ν w act i₀) t (fun h => lik (ν i₀) h * loss ν w act i₀ h) := by
     intro t
     refine S0_nonneg hπ t fun h => ?_
-    have h1 := loss_pointwise hC ∅ (δ := 1) one_pos h
     rcases (lik_nonneg (hC.semi i₀) h).eq_or_lt with hL0 | hLpos
     · rw [← hL0, zero_mul]
     · refine mul_nonneg hLpos.le ?_
@@ -2221,19 +2254,23 @@ theorem thompson_O2_stochastic (hC : GapClass r γ ν w act i₀ Δ) (hΔ : 0 < 
     linarith
   -- the finitely many rivals in `F`
   have hlim : Filter.Tendsto (fun t => ∑ i ∈ F, S0 (piP ν w act i₀) t
-      (fun h => lik (ν i₀) h * (post ν w i h * disI act i₀ i h))) Filter.atTop (nhds 0) := by
-    have := tendsto_finsetSum F fun i hi => tendsto_eI hC hΔ i (hFpos i hi)
+      (fun h => lik (ν i₀) h * (post ν w i h *
+        indI (fun i h => act i h ≠ act i₀ h) i h))) Filter.atTop (nhds 0) := by
+    have := tendsto_finsetSum F fun i hi =>
+      tendsto_eI (Bad := fun i h => act i h ≠ act i₀ h) hO hΔ i (hFpos i hi)
+        (fun h hl hb => hC.gap h hl (act i h) hb)
     simpa using this
   have hlim' := hlim.const_mul (1 / δ)
   rw [mul_zero] at hlim'
   filter_upwards [hlim'.eventually (gt_mem_nhds (show 0 < η / 3 by linarith))] with t ht
-  have h1 := S0_mono hπ t (loss_pointwise hC F hδ0)
+  have h1 := S0_mono hπ t (loss_pointwise (Bad := fun i h => act i h ≠ act i₀ h) hO
+    (fun _ _ hd => hd) F hδ0)
   rw [S0_lin, S0_lin, S0_smul, S0_sum] at h1
   have hw'0 : ∀ i, 0 ≤ (fun i => if i ∈ F then 0 else w i) i := fun i => by
     by_cases hi : i ∈ F <;> simp [hi, hC.w_nonneg i]
   have h2 : S0 (piP ν w act i₀) t (xi ν fun i => if i ∈ F then 0 else w i) ≤ tailW w F :=
     (S0_super hπ (xi_super hC.semi hw'0 (hsumm F)) t).trans_eq xi_nil
-  have h3 := hC.S0_xi t
+  have h3 := hO.S0_xi t
   have h4 := mul_le_mul_of_nonneg_left h2
     (div_nonneg (one_div_nonneg.2 hδ0.le) hw0.le)
   have h5 := mul_le_mul_of_nonneg_left h3
