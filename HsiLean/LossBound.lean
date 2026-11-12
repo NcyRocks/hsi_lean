@@ -17,7 +17,8 @@ Theorem `thULoss` (unit loss bound) and Theorem `thGLoss` (general loss bound).
 
 Binary sequences. `μ` is the true measure and `ξ` a mixture with `ξ ≥ w · μ`; both are given as
 functions on finite strings (`IsStrMeasure`: nonnegative, `1` at the empty string, additive over
-the next bit). At history `x` a predictor picks an action `a : 𝒴` (ANY type; the paper has
+the next bit). `ξ` may be a semimeasure (`IsStrSemi`: `≤ 1` at the empty string, superadditive),
+which is what the HSI / Solomonoff mixtures are; the paper assumes a measure. At history `x` a predictor picks an action `a : 𝒴` (ANY type; the paper has
 `𝒴 = {0,1}`) and suffers loss `l x b a ∈ [0,1]` when the next bit is `b`. The loss may depend on
 the history, as the paper remarks after the theorem. A predictor is `ρ`-Bayes-optimal
 (`IsBayesOpt ρ l p`, the paper's `Λ_ρ`) if at every history its action minimises the
@@ -132,7 +133,7 @@ lemma sym_ineq (y z θ : ℝ) (hy : 0 ≤ y) (hz : 0 ≤ z) (hyz : 0 < y → 0 <
 property of the actions used is that the first is at least as good as the second under `z`. -/
 theorem step_ineq (A : ℝ) (hA : 0 < A) (y0 y1 z0 z1 : ℝ)
     (hy0 : 0 ≤ y0) (hy1 : 0 ≤ y1) (hy : y0 + y1 = 1)
-    (hz0 : 0 ≤ z0) (hz1 : 0 ≤ z1) (hz : z0 + z1 = 1)
+    (hz0 : 0 ≤ z0) (hz1 : 0 ≤ z1) (hz : z0 + z1 ≤ 1)
     (h0 : 0 < y0 → 0 < z0) (h1 : 0 < y1 → 0 < z1) (l0s l1s l0m l1m : ℝ)
     (hl0s : 0 ≤ l0s ∧ l0s ≤ 1) (hl1s : 0 ≤ l1s ∧ l1s ≤ 1)
     (hl0m : 0 ≤ l0m ∧ l0m ≤ 1) (hl1m : 0 ≤ l1m ∧ l1m ≤ 1)
@@ -218,6 +219,17 @@ structure IsStrMeasure (ρ : List Bool → ℝ) : Prop where
   nil : ρ [] = 1
   split : ∀ x, ρ x = ρ (x ++ [false]) + ρ (x ++ [true])
 
+/-- [UNAPPROVED STATEMENT] A semimeasure on binary sequences, given by its values on cylinders:
+nonnegative, at most `1` on the empty string, superadditive over the next bit. (The mixture `ξ`
+of the loss bounds only needs this; the truth `μ` must be an `IsStrMeasure`.) -/
+structure IsStrSemi (ρ : List Bool → ℝ) : Prop where
+  nonneg : ∀ x, 0 ≤ ρ x
+  nil_le : ρ [] ≤ 1
+  split_le : ∀ x, ρ (x ++ [false]) + ρ (x ++ [true]) ≤ ρ x
+
+lemma IsStrMeasure.toSemi {ρ : List Bool → ℝ} (h : IsStrMeasure ρ) : IsStrSemi ρ :=
+  ⟨h.nonneg, h.nil.le, fun x => (h.split x).ge⟩
+
 /-- The conditional probability `ρ(b | x)` (`0` when `ρ x = 0`). -/
 noncomputable def cond (ρ : List Bool → ℝ) (x : List Bool) (b : Bool) : ℝ := ρ (x ++ [b]) / ρ x
 
@@ -275,13 +287,19 @@ lemma sum_strs_eq_one (hμ : IsStrMeasure μ) (n : ℕ) : ∑ x ∈ strs n, μ x
     simp_rw [← hμ.split]
     exact ih
 
-lemma cond_nonneg (hμ : IsStrMeasure μ) (x : List Bool) (b : Bool) : 0 ≤ cond μ x b :=
-  div_nonneg (hμ.nonneg _) (hμ.nonneg _)
+lemma cond_nonneg (hμ : ∀ x, 0 ≤ μ x) (x : List Bool) (b : Bool) : 0 ≤ cond μ x b :=
+  div_nonneg (hμ _) (hμ _)
 
 lemma cond_add (hμ : IsStrMeasure μ) {x : List Bool} (hx : μ x ≠ 0) :
     cond μ x false + cond μ x true = 1 := by
   unfold cond
   rw [← add_div, ← hμ.split x, div_self hx]
+
+lemma cond_add_le (hξ : IsStrSemi ξ) {x : List Bool} (hx : 0 < ξ x) :
+    cond ξ x false + cond ξ x true ≤ 1 := by
+  unfold cond
+  rw [← add_div]
+  exact (div_le_one hx).2 (hξ.split_le x)
 
 lemma pos_of_dom (hw : 0 < w) (hdom : ∀ x, w * μ x ≤ ξ x) {x : List Bool} (h : 0 < μ x) :
     0 < ξ x :=
@@ -297,8 +315,8 @@ lemma cond_pos_of_dom (hμ : IsStrMeasure μ) (hw : 0 < w) (hdom : ∀ x, w * μ
 
 lemma expLoss_nonneg (hμ : IsStrMeasure μ) {l : List Bool → Bool → 𝒴 → ℝ}
     (hl : ∀ x b a, 0 ≤ l x b a ∧ l x b a ≤ 1) (x : List Bool) (a : 𝒴) : 0 ≤ expLoss μ l x a :=
-  add_nonneg (mul_nonneg (cond_nonneg hμ x false) (hl x false a).1)
-    (mul_nonneg (cond_nonneg hμ x true) (hl x true a).1)
+  add_nonneg (mul_nonneg (cond_nonneg hμ.nonneg x false) (hl x false a).1)
+    (mul_nonneg (cond_nonneg hμ.nonneg x true) (hl x true a).1)
 
 lemma cumLoss_nonneg (hμ : IsStrMeasure μ) {l : List Bool → Bool → 𝒴 → ℝ}
     (hl : ∀ x b a, 0 ≤ l x b a ∧ l x b a ≤ 1) (p : List Bool → 𝒴) (n : ℕ) :
@@ -307,19 +325,19 @@ lemma cumLoss_nonneg (hμ : IsStrMeasure μ) {l : List Bool → Bool → 𝒴 �
     mul_nonneg (hμ.nonneg x) (expLoss_nonneg hμ hl x _)
 
 /-- Relative entropy of the next-bit predictions is nonnegative. -/
-lemma klStep_nonneg (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+lemma klStep_nonneg (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
     (hdom : ∀ x, w * μ x ≤ ξ x) {x : List Bool} (hx : 0 < μ x) : 0 ≤ klStep μ ξ x := by
-  have s0 := sym_ineq (cond μ x false) (cond ξ x false) 0 (cond_nonneg hμ x false)
-    (cond_nonneg hξ x false) (cond_pos_of_dom hμ hw hdom hx false)
-  have s1 := sym_ineq (cond μ x true) (cond ξ x true) 0 (cond_nonneg hμ x true)
-    (cond_nonneg hξ x true) (cond_pos_of_dom hμ hw hdom hx true)
+  have s0 := sym_ineq (cond μ x false) (cond ξ x false) 0 (cond_nonneg hμ.nonneg x false)
+    (cond_nonneg hξ.nonneg x false) (cond_pos_of_dom hμ hw hdom hx false)
+  have s1 := sym_ineq (cond μ x true) (cond ξ x true) 0 (cond_nonneg hμ.nonneg x true)
+    (cond_nonneg hξ.nonneg x true) (cond_pos_of_dom hμ hw hdom hx true)
   have hy := cond_add hμ hx.ne'
-  have hz := cond_add hξ (pos_of_dom hw hdom hx).ne'
+  have hz := cond_add_le hξ (pos_of_dom hw hdom hx)
   simp only [mul_zero, Real.exp_zero, mul_one] at s0 s1
   unfold klStep
   linarith
 
-lemma relEnt_nonneg (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+lemma relEnt_nonneg (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
     (hdom : ∀ x, w * μ x ≤ ξ x) (n : ℕ) : 0 ≤ relEnt μ ξ n :=
   Finset.sum_nonneg fun _ _ => Finset.sum_nonneg fun x _ => by
     rcases (hμ.nonneg x).eq_or_lt with h0 | hpos
@@ -327,7 +345,7 @@ lemma relEnt_nonneg (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
     · exact mul_nonneg hpos.le (klStep_nonneg hμ hξ hw hdom hpos)
 
 /-- The per-step inequality at a history `x`, weighted by `μ x`. -/
-lemma step_loss_le (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+lemma step_loss_le (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
     (hdom : ∀ x, w * μ x ≤ ξ x) {l : List Bool → Bool → 𝒴 → ℝ}
     (hl : ∀ x b a, 0 ≤ l x b a ∧ l x b a ≤ 1) {pξ : List Bool → 𝒴} (hoptξ : IsBayesOpt ξ l pξ)
     (pμ : List Bool → 𝒴) (A : ℝ) (hA : 0 < A) (x : List Bool) :
@@ -337,8 +355,8 @@ lemma step_loss_le (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
   · rw [← h0]; simp
   · have hξpos := pos_of_dom hw hdom hpos
     have h := step_ineq A hA (cond μ x false) (cond μ x true) (cond ξ x false) (cond ξ x true)
-      (cond_nonneg hμ x false) (cond_nonneg hμ x true) (cond_add hμ hpos.ne')
-      (cond_nonneg hξ x false) (cond_nonneg hξ x true) (cond_add hξ hξpos.ne')
+      (cond_nonneg hμ.nonneg x false) (cond_nonneg hμ.nonneg x true) (cond_add hμ hpos.ne')
+      (cond_nonneg hξ.nonneg x false) (cond_nonneg hξ.nonneg x true) (cond_add_le hξ hξpos)
       (cond_pos_of_dom hμ hw hdom hpos false) (cond_pos_of_dom hμ hw hdom hpos true)
       (l x false (pξ x)) (l x true (pξ x)) (l x false (pμ x)) (l x true (pμ x))
       (hl _ _ _) (hl _ _ _) (hl _ _ _) (hl _ _ _) (hoptξ x (pμ x))
@@ -347,7 +365,7 @@ lemma step_loss_le (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
     ring
 
 /-- The paper's (Eineq3): `L_ξ ≤ (1+A) L_μ + (1 + A/4 + 1/A) H_n` for every `A > 0`. -/
-lemma cumLoss_le_linear (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+lemma cumLoss_le_linear (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
     (hdom : ∀ x, w * μ x ≤ ξ x) {l : List Bool → Bool → 𝒴 → ℝ}
     (hl : ∀ x b a, 0 ≤ l x b a ∧ l x b a ≤ 1) {pξ : List Bool → 𝒴} (hoptξ : IsBayesOpt ξ l pξ)
     (pμ : List Bool → 𝒴) (A : ℝ) (hA : 0 < A) (n : ℕ) :
@@ -402,17 +420,21 @@ lemma step_kl_eq (hμ : IsStrMeasure μ) (hw : 0 < w) (hdom : ∀ x, w * μ x �
         μ x * log (μ x / ξ x) := by rw [← add_mul, ← hs]
     linarith
 
-/-- The chain rule: `H_n = Σ_{|x|=n} μ(x) ln(μ(x)/ξ(x))`. -/
-lemma relEnt_eq_klTotal (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
-    (hdom : ∀ x, w * μ x ≤ ξ x) (n : ℕ) : relEnt μ ξ n = klTotal μ ξ n := by
+/-- The chain rule: `H_n = Σ_{|x|=n} μ(x) ln(μ(x)/ξ(x)) - ln(1/ξ(ε))`, and `ξ(ε) ≤ 1`. -/
+lemma relEnt_le_klTotal (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
+    (hdom : ∀ x, w * μ x ≤ ξ x) (n : ℕ) : relEnt μ ξ n ≤ klTotal μ ξ n := by
   have hstep : ∀ t, ∑ x ∈ strs t, μ x * klStep μ ξ x = klTotal μ ξ (t + 1) - klTotal μ ξ t := by
     intro t
     unfold klTotal
     rw [sum_strs_succ, ← Finset.sum_sub_distrib]
     exact Finset.sum_congr rfl fun x _ => step_kl_eq hμ hw hdom x
+  have h0 : 0 ≤ klTotal μ ξ 0 := by
+    have hpos : 0 < ξ [] := pos_of_dom hw hdom (by rw [hμ.nil]; exact one_pos)
+    simp only [klTotal, strs, Finset.sum_singleton, hμ.nil, one_mul]
+    exact Real.log_nonneg ((one_le_div hpos).2 hξ.nil_le)
   unfold relEnt
   rw [Finset.sum_congr rfl (fun t _ => hstep t), Finset.sum_range_sub]
-  simp [klTotal, strs, hμ.nil, hξ.nil]
+  linarith
 
 lemma klTotal_le (hμ : IsStrMeasure μ) (hw : 0 < w) (hdom : ∀ x, w * μ x ≤ ξ x) (n : ℕ) :
     klTotal μ ξ n ≤ log (1 / w) := by
@@ -430,8 +452,8 @@ lemma klTotal_le (hμ : IsStrMeasure μ) (hw : 0 < w) (hdom : ∀ x, w * μ x �
 /-- [UNAPPROVED STATEMENT] **Hutter's unit loss bound** (`thULoss`), for measures given as
 functions on strings.
 
-Let `μ` (the truth) and `ξ` be probability measures on binary sequences with `ξ ≥ w · μ` for
-some `w > 0`. Let the loss `l x b a` (history `x`, next bit `b`, action `a`) lie in `[0,1]`, and
+Let `μ` (the truth) be a probability measure on binary sequences and `ξ` a measure or
+semimeasure with `ξ ≥ w · μ` for some `w > 0`. Let the loss `l x b a` (history `x`, next bit `b`, action `a`) lie in `[0,1]`, and
 let `pμ`, `pξ` be Bayes-optimal for `μ` and `ξ`. Then for every `n`:
 
 * `0 ≤ L_ξ - L_μ ≤ H_n + √(4 L_μ H_n + H_n²)`, and
@@ -439,7 +461,7 @@ let `pμ`, `pξ` be Bayes-optimal for `μ` and `ξ`. Then for every `n`:
 
 where `L_· = cumLoss μ l p· n` are the total `μ`-expected losses and `H_n = relEnt μ ξ n`. -/
 theorem unit_loss_bound_fn {μ ξ : List Bool → ℝ} {w : ℝ} (hμ : IsStrMeasure μ)
-    (hξ : IsStrMeasure ξ) (hw : 0 < w) (hdom : ∀ x, w * μ x ≤ ξ x)
+    (hξ : IsStrSemi ξ) (hw : 0 < w) (hdom : ∀ x, w * μ x ≤ ξ x)
     {l : List Bool → Bool → 𝒴 → ℝ} (hl : ∀ x b a, 0 ≤ l x b a ∧ l x b a ≤ 1)
     {pμ pξ : List Bool → 𝒴} (hoptμ : IsBayesOpt μ l pμ) (hoptξ : IsBayesOpt ξ l pξ) (n : ℕ) :
     0 ≤ cumLoss μ l pξ n - cumLoss μ l pμ n ∧
@@ -450,7 +472,7 @@ theorem unit_loss_bound_fn {μ ξ : List Bool → ℝ} {w : ℝ} (hμ : IsStrMea
     opt_bound _ _ _ (cumLoss_nonneg hμ hl pμ n) (relEnt_nonneg hμ hξ hw hdom n)
       (fun A hA => cumLoss_le_linear hμ hξ hw hdom hl hoptξ pμ A hA n),
     relEnt_nonneg hμ hξ hw hdom n,
-    (relEnt_eq_klTotal hμ hξ hw hdom n).le.trans (klTotal_le hμ hw hdom n)⟩
+    (relEnt_le_klTotal hμ hξ hw hdom n).trans (klTotal_le hμ hw hdom n)⟩
 
 /-! ### The general loss bound -/
 
@@ -488,7 +510,7 @@ lemma cumLoss_scale (hμ : IsStrMeasure μ) (l : List Bool → Bool → 𝒴 →
 
 (Proof as in the paper: rescale the loss to `[0,1]`; the Bayes-optimal predictors do not
 change.) -/
-theorem general_loss_bound_fn (hμ : IsStrMeasure μ) (hξ : IsStrMeasure ξ) (hw : 0 < w)
+theorem general_loss_bound_fn (hμ : IsStrMeasure μ) (hξ : IsStrSemi ξ) (hw : 0 < w)
     (hdom : ∀ x, w * μ x ≤ ξ x) {l : List Bool → Bool → 𝒴 → ℝ} {lmin lΔ : ℝ} (hΔ : 0 < lΔ)
     (hl : ∀ x b a, lmin ≤ l x b a ∧ l x b a ≤ lmin + lΔ)
     {pμ pξ : List Bool → 𝒴} (hoptμ : IsBayesOpt μ l pμ) (hoptξ : IsBayesOpt ξ l pξ) (n : ℕ) :
@@ -623,7 +645,7 @@ theorem unit_loss_bound (hw : ∑' i, w i = 1) (i₀ : ℕ) (hi₀ : w i₀ ≠ 
   have hwt : w i₀ ≠ ⊤ := ne_top_of_le_ne_top ENNReal.one_ne_top (hw ▸ ENNReal.le_tsum i₀)
   have hwpos : 0 < (w i₀).toReal := ENNReal.toReal_pos hi₀ hwt
   have hμ := isStrMeasure_truthFn Q i₀
-  obtain ⟨h1, h2, h3, h4⟩ := unit_loss_bound_fn hμ (isStrMeasure_mixFn Q w hw) hwpos
+  obtain ⟨h1, h2, h3, h4⟩ := unit_loss_bound_fn hμ (isStrMeasure_mixFn Q w hw).toSemi hwpos
     (dom_mixFn Q w hw i₀) hl hoptμ hoptξ n
   obtain ⟨m1, m2⟩ := bound_mono (cumLoss_nonneg hμ hl pμ n) h3 h4
   exact ⟨h1, h2, h4, h2.trans m1, (h2.trans m1).trans m2⟩
