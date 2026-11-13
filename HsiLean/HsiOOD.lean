@@ -596,6 +596,119 @@ theorem hsi_ood (hP : ∀ j, ∑' a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) {j : 
     fun a b j₀ i n hj₀ hwi hn hik hij hb =>
       ood_offDistribution_upper P w hP1 hw a b hj₀ hwi n hn hik hij hb⟩
 
+/-! ## Step 4: HSI is exchangeable, so it cannot learn the ORDER of the items -/
+
+/-- [UNAPPROVED STATEMENT] **HSI is exchangeable** (the note's §6 candidate 2): reordering the
+dataset does not change the probability HSI gives it. No hypotheses. -/
+theorem mixL_perm {xs ys : List α} (h : xs.Perm ys) : mixL P w xs = mixL P w ys := by
+  unfold mixL lik
+  exact tsum_congr fun j => by rw [(h.map (P j)).prod_eq]
+
+/-- [UNAPPROVED STATEMENT] Hence the trained predictor does not depend on the order of the
+training data either. -/
+theorem pred_perm {xs ys : List α} (h : xs.Perm ys) (a : α) : pred P w xs a = pred P w ys a := by
+  unfold pred
+  rw [mixL_perm P w h, mixL_perm P w (h.append_right [a])]
+
+/-- The total probability of all `n`-tuples under an i.i.d. model is `(∑ f)ⁿ`. -/
+lemma tsum_pi_prod (f : α → ℝ≥0∞) (n : ℕ) :
+    ∑' v : Fin n → α, ∏ i, f (v i) = (∑' a, f a) ^ n := by
+  induction n with
+  | zero => simp
+  | succ n ih =>
+    rw [← (Fin.consEquiv (fun _ : Fin (n + 1) => α)).tsum_eq, ENNReal.tsum_prod']
+    simp only [Fin.consEquiv, Equiv.coe_fn_mk, Fin.prod_univ_succ, Fin.cons_zero, Fin.cons_succ]
+    simp_rw [ENNReal.tsum_mul_left]
+    rw [ENNReal.tsum_mul_right, ih, pow_succ, mul_comm]
+
+/-- `n! · e_n(f) ≤ e_1(f)ⁿ`, for any family `S` of `n`-element sets: every set has `n!`
+orderings, and different sets have different orderings. -/
+lemma sum_factorial_mul_prod_le (f : α → ℝ≥0∞) (S : Finset (Finset α)) (n : ℕ)
+    (hS : ∀ s ∈ S, s.card = n) :
+    ∑ s ∈ S, (n.factorial : ℝ≥0∞) * ∏ a ∈ s, f a ≤ (∑' a, f a) ^ n := by
+  classical
+  rw [← tsum_pi_prod f n]
+  let e : ∀ s : S, Fin n ≃ ↥s.1 := fun s => (Finset.equivFinOfCardEq (hS s.1 s.2)).symm
+  let φ : S × Equiv.Perm (Fin n) → (Fin n → α) := fun p i => ((e p.1 (p.2 i) : ↥p.1.1) : α)
+  have hmem : ∀ (t : S) (τ : Equiv.Perm (Fin n)) (a : α), a ∈ t.1 ↔ ∃ i, φ (t, τ) i = a := by
+    intro t τ a
+    constructor
+    · intro ha
+      refine ⟨τ.symm ((e t).symm ⟨a, ha⟩), ?_⟩
+      simp [φ]
+    · rintro ⟨i, rfl⟩
+      exact (e t (τ i)).2
+  have hφ : Function.Injective φ := by
+    rintro ⟨s, σ⟩ ⟨s', σ'⟩ h
+    have hs : s = s' := by
+      apply Subtype.ext
+      ext a
+      rw [hmem s σ a, hmem s' σ' a, h]
+    subst hs
+    refine Prod.ext rfl (Equiv.ext fun i => ?_)
+    exact (e s).injective (Subtype.ext (congrFun h i))
+  have hval : ∀ p : S × Equiv.Perm (Fin n), ∏ i, f (φ p i) = ∏ a ∈ p.1.1, f a := by
+    intro p
+    calc ∏ i, f (φ p i) = ∏ i, (fun x : ↥p.1.1 => f x) ((p.2.trans (e p.1)) i) := rfl
+      _ = ∏ x : ↥p.1.1, f x :=
+        Fintype.prod_equiv (p.2.trans (e p.1)) _ (fun x : ↥p.1.1 => f x) (fun _ => rfl)
+      _ = ∏ a ∈ p.1.1, f a := Finset.prod_coe_sort p.1.1 f
+  calc ∑ s ∈ S, (n.factorial : ℝ≥0∞) * ∏ a ∈ s, f a
+      = ∑ s : S, (n.factorial : ℝ≥0∞) * ∏ a ∈ s.1, f a :=
+        (Finset.sum_coe_sort S fun s => (n.factorial : ℝ≥0∞) * ∏ a ∈ s, f a).symm
+    _ = ∑ s : S, ∑ σ : Equiv.Perm (Fin n), ∏ i, f (φ (s, σ) i) := by
+        refine Finset.sum_congr rfl fun s _ => ?_
+        simp only [hval]
+        rw [Finset.sum_const, Finset.card_univ, Fintype.card_perm, Fintype.card_fin,
+          nsmul_eq_mul]
+    _ = ∑ p : S × Equiv.Perm (Fin n), ∏ i, f (φ p i) :=
+        (Fintype.sum_prod_type fun p : S × Equiv.Perm (Fin n) => ∏ i, f (φ p i)).symm
+    _ = ∑' p : S × Equiv.Perm (Fin n), ∏ i, f (φ p i) := (tsum_fintype _).symm
+    _ ≤ ∑' v : Fin n → α, ∏ i, f (v i) :=
+        ENNReal.tsum_comp_le_tsum_of_injective hφ fun v => ∏ i, f (v i)
+
+/-- [UNAPPROVED STATEMENT] **The counting bound** (the note's §6 candidate 2, the core of its
+Theorem B.3; `DecidableEq` dropped). For any finite family `S` of `n`-element sets of items,
+
+`Σ_{s ∈ S} n! · P_Η(s, in any one order) ≤ 1`.
+
+HSI must spread its probability over all `n!` orderings of every set, because it gives them all
+the same probability (`mixL_perm`). A predictor that reads the items in order need not. -/
+theorem card_mul_mixL_le_one (hP : ∀ j, ∑' a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1)
+    (S : Finset (Finset α)) (n : ℕ) (hS : ∀ s ∈ S, s.card = n) :
+    ∑ s ∈ S, (n.factorial : ℝ≥0∞) * mixL P w s.toList ≤ 1 := by
+  have hlik : ∀ j (s : Finset α), lik P j s.toList = ∏ a ∈ s, P j a := fun j s => by
+    unfold lik; exact Finset.prod_map_toList s (P j)
+  calc ∑ s ∈ S, (n.factorial : ℝ≥0∞) * mixL P w s.toList
+      = ∑ s ∈ S, ∑' j, w j * ((n.factorial : ℝ≥0∞) * ∏ a ∈ s, P j a) := by
+        refine Finset.sum_congr rfl fun s _ => ?_
+        unfold mixL
+        rw [← ENNReal.tsum_mul_left]
+        exact tsum_congr fun j => by rw [hlik]; ring
+    _ = ∑' j, ∑ s ∈ S, w j * ((n.factorial : ℝ≥0∞) * ∏ a ∈ s, P j a) :=
+        (Summable.tsum_finsetSum fun _ _ => ENNReal.summable).symm
+    _ = ∑' j, w j * ∑ s ∈ S, (n.factorial : ℝ≥0∞) * ∏ a ∈ s, P j a :=
+        tsum_congr fun j => (Finset.mul_sum _ _ _).symm
+    _ ≤ ∑' j, w j * 1 := ENNReal.tsum_le_tsum fun j => mul_le_mul' le_rfl
+        ((sum_factorial_mul_prod_le (P j) S n hS).trans (pow_le_one' (hP j) n))
+    _ ≤ 1 := by simpa using hw
+
+/-- [UNAPPROVED STATEMENT] **HSI cannot be paid for order.** In any non-empty family of `N`
+sets of `n` distinct items there is a set `s` every ordering `xs` of which gets HSI-probability
+at most `1 / (n! · N)`. (A predictor that knows the order rule can give one ordering of each set
+probability `1/N`: it then beats HSI on that dataset by `log₂ n!` bits.) -/
+theorem exists_mixL_perm_le (hP : ∀ j, ∑' a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1)
+    (S : Finset (Finset α)) (hne : S.Nonempty) (n : ℕ) (hS : ∀ s ∈ S, s.card = n) :
+    ∃ s ∈ S, ∀ xs : List α, xs.Perm s.toList →
+      (n.factorial : ℝ≥0∞) * mixL P w xs ≤ (S.card : ℝ≥0∞)⁻¹ := by
+  have hc0 : (S.card : ℝ≥0∞) ≠ 0 := by exact_mod_cast hne.card_pos.ne'
+  have hsum : ∑ s ∈ S, (n.factorial : ℝ≥0∞) * mixL P w s.toList
+      ≤ ∑ _s ∈ S, (S.card : ℝ≥0∞)⁻¹ := by
+    rw [Finset.sum_const, nsmul_eq_mul, ENNReal.mul_inv_cancel hc0 (by simp)]
+    exact card_mul_mixL_le_one P w hP hw S n hS
+  obtain ⟨s, hs, hle⟩ := ENNReal.exists_le_of_sum_le hne hsum
+  exact ⟨s, hs, fun xs hxs => by rw [mixL_perm P w hxs]; exact hle⟩
+
 end HsiLean.HsiOOD
 
 /-! ## The machine level -/
