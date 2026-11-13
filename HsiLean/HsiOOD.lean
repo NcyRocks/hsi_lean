@@ -363,6 +363,29 @@ theorem ood_linear (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) (a b : 
   rw [lik_replicate, ENNReal.toReal_pow, Real.logb_pow]
   linarith
 
+/-- [UNAPPROVED STATEMENT] **HSI's training gain on `n` copies of one item is linear in `n`**
+(the note's A1 example). If a member `j₀` of positive weight puts probability one on `a`, then
+for any comparison member `j` with `P_j(a) > 0`:
+
+`trainGain j aⁿ ≥ n · (-log₂ P_j(a)) - (-log₂ w j₀)`.
+
+So in the example of `ood_lower` the upper bound of `ood_upper` is linear in `n` whenever
+`P_j(a) < 1`, while the lower bound there is `log₂(n+1) - C`: that example does not show that
+`ood_upper` is tight. -/
+theorem trainGain_replicate_ge (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) (a : α)
+    {j₀ : ℕ} (hj₀ : P j₀ a = 1) (hw₀ : w j₀ ≠ 0) (j : ℕ) (n : ℕ) :
+    (n : ℝ) * (-Real.logb 2 (P j a).toReal) - (-Real.logb 2 (w j₀).toReal)
+      ≤ trainGain P w j (List.replicate n a) := by
+  have r0 : 0 < (w j₀).toReal := ENNReal.toReal_pos hw₀ (w_ne_top w hw j₀)
+  have hD : w j₀ ≤ mixL P w (List.replicate n a) := by
+    have h := le_mixL P w j₀ (List.replicate n a)
+    rwa [lik_replicate, hj₀, one_pow, mul_one] at h
+  have h1 := Real.logb_le_logb_of_le (b := 2) (by norm_num) r0
+    (ENNReal.toReal_mono (mixL_ne_top' P w hP1 hw _) hD)
+  unfold trainGain
+  rw [lik_replicate, ENNReal.toReal_pow, Real.logb_pow]
+  linarith
+
 /-! ### A class in which the penalty is linear (vacuity guard) -/
 
 /-- Example class on `Bool`: model `0` is the point mass on `true`, model `1` is the fair coin,
