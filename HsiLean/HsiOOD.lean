@@ -362,4 +362,277 @@ theorem ood_linear (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) (a b : 
   rw [lik_replicate, ENNReal.toReal_pow, Real.logb_pow]
   linarith
 
+/-! ### A class in which the penalty is linear (vacuity guard) -/
+
+/-- Example class on `Bool`: model `0` is the point mass on `true`, model `1` is the fair coin,
+every other model is zero. -/
+noncomputable def exP : ℕ → Bool → ℝ≥0∞ := fun j x =>
+  if j = 0 then (if x then 1 else 0) else if j = 1 then 2⁻¹ else 0
+
+/-- Example weights: `1/2` on models `0` and `1`. -/
+noncomputable def exW : ℕ → ℝ≥0∞ := fun j => if j = 0 then 2⁻¹ else if j = 1 then 2⁻¹ else 0
+
+lemma exP_sub (j : ℕ) : ∑' a, exP j a ≤ 1 := by
+  rw [tsum_bool]
+  by_cases h0 : j = 0
+  · simp [exP, h0]
+  · by_cases h1 : j = 1
+    · simp [exP, h1, ENNReal.inv_two_add_inv_two]
+    · simp [exP, h0, h1]
+
+lemma exW_sub : ∑' j, exW j ≤ 1 := by
+  have h : ∑' j, exW j = ∑ j ∈ ({0, 1} : Finset ℕ), exW j := by
+    apply tsum_eq_sum
+    intro j hj
+    simp only [Finset.mem_insert, Finset.mem_singleton, not_or] at hj
+    simp [exW, hj.1, hj.2]
+  rw [h, Finset.sum_pair (by norm_num)]
+  simp [exW, ENNReal.inv_two_add_inv_two]
+
+/-- [UNAPPROVED STATEMENT] **The linear penalty occurs.** There is a class (on `Bool`: the point
+mass on `true`, and the fair coin, weight `1/2` each) satisfying all of `Rate.lean`'s hypotheses
+in which, after training on `n` copies of `true`, trained HSI's log loss on `false` exceeds the
+fair coin's by at least `n - 1` bits. So the hypotheses of `ood_lower`, `ood_linear` and
+`pred_offDistribution_le` are satisfiable and the penalty is not always logarithmic. -/
+theorem example_ood_linear :
+    ∃ (P : ℕ → Bool → ℝ≥0∞) (w : ℕ → ℝ≥0∞), (∀ j, ∑' a, P j a ≤ 1) ∧ ∑' j, w j ≤ 1 ∧
+      ∀ n : ℕ, (n : ℝ) - 1 ≤ excess P w 1 (List.replicate n true) false := by
+  refine ⟨exP, exW, exP_sub, exW_sub, fun n => ?_⟩
+  have hP1 : ∀ j a, exP j a ≤ 1 := fun j a => (ENNReal.le_tsum a).trans (exP_sub j)
+  have h := ood_linear exP exW hP1 exW_sub true false (j₀ := 0) (by simp [exP])
+    (by simp [exW]) (j := 1) (by simp [exW]) (by simp [exP]) (by simp [exP])
+    (by
+      intro i hi
+      by_cases h0 : i = 0
+      · simp [exP, h0]
+      · simp [exW, h0, hi]) n
+  have e1 : Real.logb 2 (exP 1 true).toReal = -1 := by
+    simp [exP, Real.logb_inv]
+  have e2 : Real.logb 2 (exW 0).toReal = -1 := by
+    simp [exW, Real.logb_inv]
+  rw [e1, e2] at h
+  linarith
+
+/-! ## A logarithmic upper bound when the class contains a hedged model -/
+
+lemma pow_mul_lik_le {i k : ℕ} {c : ℝ≥0∞} (hik : ∀ a, c * P k a ≤ P i a) (xs : List α) :
+    c ^ xs.length * lik P k xs ≤ lik P i xs := by
+  induction xs with
+  | nil => simp [lik]
+  | cons a xs ih =>
+    have e1 : lik P k (a :: xs) = P k a * lik P k xs := by simp [lik]
+    have e2 : lik P i (a :: xs) = P i a * lik P i xs := by simp [lik]
+    rw [e1, e2, List.length_cons, pow_succ]
+    calc c ^ xs.length * c * (P k a * lik P k xs)
+        = (c * P k a) * (c ^ xs.length * lik P k xs) := by ring
+      _ ≤ P i a * lik P i xs := mul_le_mul' (hik a) ih
+
+/-- [UNAPPROVED STATEMENT] **Upper bound through a hedged member.** Let member `i` (positive
+weight) dominate `c ·` (model `k`) and `d ·` (the comparison model `j`), `0 < c, d < ∞` — e.g.
+`i` is the mixture `c · P_k + d · P_j`. For any training data `xs` to which `k` gives positive
+probability and any test item `y` with `P_j(y) > 0`:
+
+`(trained HSI's log loss on y) - (j's log loss on y)
+   ≤ -log₂ w i + |xs| · (-log₂ c) + (-log₂ d) + trainGain k xs`.
+
+This is Proposition E's argument with the lower bound `w i · P_i(X, y)` on HSI's probability of
+(X, y) instead of `w j · P_j(X, y)`: the comparison model only has to be present inside SOME
+member that also explains the training data. -/
+theorem ood_upper_hedged (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) {i j k : ℕ}
+    (hwi : w i ≠ 0) {c d : ℝ≥0∞} (hc0 : c ≠ 0) (hct : c ≠ ⊤) (hd0 : d ≠ 0) (hdt : d ≠ ⊤)
+    (hik : ∀ a, c * P k a ≤ P i a) (hij : ∀ a, d * P j a ≤ P i a)
+    (xs : List α) (y : α) (hk : lik P k xs ≠ 0) (hy : P j y ≠ 0) :
+    excess P w j xs y ≤ -Real.logb 2 (w i).toReal + (xs.length : ℝ) * (-Real.logb 2 c.toReal)
+      + (-Real.logb 2 d.toReal) + trainGain P w k xs := by
+  have hq : w i * ((c ^ xs.length * lik P k xs) * (d * P j y)) ≤ mixL P w (xs ++ [y]) := by
+    refine le_trans ?_ (le_mixL P w i (xs ++ [y]))
+    rw [lik_append]
+    exact mul_le_mul' le_rfl (mul_le_mul' (pow_mul_lik_le P hik xs) (hij y))
+  have h := excess_le_of_le P w hP1 hw j
+    (mul_ne_zero hwi (mul_ne_zero (mul_ne_zero (pow_ne_zero _ hc0) hk) (mul_ne_zero hd0 hy))) hq
+  have r1 : 0 < (w i).toReal := ENNReal.toReal_pos hwi (w_ne_top w hw i)
+  have rc : 0 < c.toReal := ENNReal.toReal_pos hc0 hct
+  have rd : 0 < d.toReal := ENNReal.toReal_pos hd0 hdt
+  have rl : 0 < (lik P k xs).toReal :=
+    ENNReal.toReal_pos hk (ne_top_of_le_ne_top one_ne_top (lik_le_one' P hP1 k xs))
+  have rp : 0 < (P j y).toReal :=
+    ENNReal.toReal_pos hy (ne_top_of_le_ne_top one_ne_top (hP1 j y))
+  have rcn : 0 < c.toReal ^ xs.length := pow_pos rc _
+  simp only [ENNReal.toReal_mul, ENNReal.toReal_pow] at h
+  rw [Real.logb_mul r1.ne' (mul_pos (mul_pos rcn rl) (mul_pos rd rp)).ne',
+    Real.logb_mul (mul_pos rcn rl).ne' (mul_pos rd rp).ne', Real.logb_mul rcn.ne' rl.ne',
+    Real.logb_mul rd.ne' rp.ne', Real.logb_pow] at h
+  unfold trainGain
+  linarith
+
+/-- [UNAPPROVED STATEMENT] **A logarithmic upper bound on the out-of-distribution penalty.**
+Training data `xs` of size `n ≥ 1`. Suppose some member `i` of positive weight hedges between a
+model `k` and the comparison model `j` at rate `1/(n+1)`: `P_i ≥ (n/(n+1)) · P_k` and
+`P_i ≥ (1/(n+1)) · P_j` (e.g. `P_i = (n/(n+1)) P_k + (1/(n+1)) P_j`). Then for every test item
+`y` with `P_j(y) > 0` (and `P_k(xs) > 0`):
+
+`(trained HSI's log loss on y) - (j's log loss on y)
+   ≤ log₂(n+1) + 1/ln 2 - log₂ w i + trainGain k xs`.
+
+`trainGain k xs` is how much HSI beat the single model `k` on the training data; it is `≤ 0`
+when `k` fits the training data perfectly. So when one model explains the training data about as
+well as HSI does, a surprising test item costs only `log₂(n+1)` plus the price `-log₂ w i` of
+naming the hedge (which depends on `n` through `i`). -/
+theorem ood_upper_hedged_log (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) {i j k : ℕ}
+    (hwi : w i ≠ 0) (xs : List α) (y : α) (hn : xs ≠ [])
+    (hik : ∀ a, ((xs.length : ℝ≥0∞) / ((xs.length : ℝ≥0∞) + 1)) * P k a ≤ P i a)
+    (hij : ∀ a, ((xs.length : ℝ≥0∞) + 1)⁻¹ * P j a ≤ P i a)
+    (hk : lik P k xs ≠ 0) (hy : P j y ≠ 0) :
+    excess P w j xs y ≤ Real.logb 2 ((xs.length : ℝ) + 1) + 1 / Real.log 2
+      - Real.logb 2 (w i).toReal + trainGain P w k xs := by
+  have hlen : 0 < xs.length := List.length_pos_iff.mpr hn
+  have hN : (0 : ℝ) < (xs.length : ℝ) := by exact_mod_cast hlen
+  have hN1 : (0 : ℝ) < (xs.length : ℝ) + 1 := by positivity
+  have hc0 : ((xs.length : ℝ≥0∞) / ((xs.length : ℝ≥0∞) + 1)) ≠ 0 :=
+    ENNReal.div_ne_zero.mpr ⟨by exact_mod_cast hlen.ne', by simp⟩
+  have hct : ((xs.length : ℝ≥0∞) / ((xs.length : ℝ≥0∞) + 1)) ≠ ⊤ :=
+    ENNReal.div_ne_top (by simp) (by simp)
+  have hd0 : ((xs.length : ℝ≥0∞) + 1)⁻¹ ≠ 0 := ENNReal.inv_ne_zero.mpr (by simp)
+  have hdt : ((xs.length : ℝ≥0∞) + 1)⁻¹ ≠ ⊤ := ENNReal.inv_ne_top.mpr (by simp)
+  have h := ood_upper_hedged P w hP1 hw hwi hc0 hct hd0 hdt hik hij xs y hk hy
+  have ec : ((xs.length : ℝ≥0∞) / ((xs.length : ℝ≥0∞) + 1)).toReal
+      = (xs.length : ℝ) / ((xs.length : ℝ) + 1) := by
+    rw [ENNReal.toReal_div, ENNReal.toReal_add (by simp) (by simp)]; simp
+  have ed : (((xs.length : ℝ≥0∞) + 1)⁻¹).toReal = ((xs.length : ℝ) + 1)⁻¹ := by
+    rw [ENNReal.toReal_inv, ENNReal.toReal_add (by simp) (by simp)]; simp
+  rw [ec, ed, Real.logb_inv] at h
+  have hlog2 : 0 < Real.log 2 := Real.log_pos (by norm_num)
+  have key : (xs.length : ℝ) * (-Real.logb 2 ((xs.length : ℝ) / ((xs.length : ℝ) + 1)))
+      ≤ 1 / Real.log 2 := by
+    have h1 := Real.log_le_sub_one_of_pos (x := ((xs.length : ℝ) + 1) / (xs.length : ℝ))
+      (div_pos hN1 hN)
+    have h2 : Real.log (((xs.length : ℝ) + 1) / (xs.length : ℝ))
+        = -Real.log ((xs.length : ℝ) / ((xs.length : ℝ) + 1)) := by
+      rw [← Real.log_inv, inv_div]
+    have h3 : ((xs.length : ℝ) + 1) / (xs.length : ℝ) - 1 = 1 / (xs.length : ℝ) := by
+      field_simp; ring
+    rw [h2, h3] at h1
+    unfold Real.logb
+    rw [← neg_div, ← mul_div_assoc]
+    apply div_le_div_of_nonneg_right _ hlog2.le
+    calc (xs.length : ℝ) * (-Real.log ((xs.length : ℝ) / ((xs.length : ℝ) + 1)))
+        ≤ (xs.length : ℝ) * (1 / (xs.length : ℝ)) := mul_le_mul_of_nonneg_left h1 hN.le
+      _ = 1 := by field_simp
+  linarith
+
+/-- [UNAPPROVED STATEMENT] **The `n` copies of `a`, then `b` example from above: the penalty is
+at most `log₂(n+1) + 1/ln 2 - log₂ w i`** when the class contains a member `i` hedging between
+the point mass `j₀` on `a` and the comparison model `j` at rate `1/(n+1)`. Together with
+`ood_lower` (`≥ log₂(n+1) - C`), the penalty in such a class is `log₂(n+1)` up to the price of
+naming the hedge. -/
+theorem ood_offDistribution_upper (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) (a b : α)
+    {j₀ : ℕ} (hj₀ : P j₀ a = 1) {i j : ℕ} (hwi : w i ≠ 0) (n : ℕ) (hn : 0 < n)
+    (hik : ∀ x, ((n : ℝ≥0∞) / ((n : ℝ≥0∞) + 1)) * P j₀ x ≤ P i x)
+    (hij : ∀ x, ((n : ℝ≥0∞) + 1)⁻¹ * P j x ≤ P i x) (hb : P j b ≠ 0) :
+    excess P w j (List.replicate n a) b
+      ≤ Real.logb 2 ((n : ℝ) + 1) + 1 / Real.log 2 - Real.logb 2 (w i).toReal := by
+  have hne : List.replicate n a ≠ [] := by
+    intro h
+    have := congrArg List.length h
+    simp at this
+    omega
+  have hlk : lik P j₀ (List.replicate n a) = 1 := by rw [lik_replicate, hj₀, one_pow]
+  have h := ood_upper_hedged_log P w hP1 hw (i := i) (j := j) (k := j₀) hwi
+    (List.replicate n a) b hne (by simpa using hik) (by simpa using hij)
+    (by rw [hlk]; exact one_ne_zero) hb
+  have hg : trainGain P w j₀ (List.replicate n a) ≤ 0 := by
+    unfold trainGain
+    rw [hlk]
+    have : Real.logb 2 (mixL P w (List.replicate n a)).toReal ≤ 0 := by
+      apply Real.logb_nonpos (by norm_num) ENNReal.toReal_nonneg
+      exact ENNReal.toReal_le_of_le_ofReal zero_le_one
+        (by simpa using mixL_le_one' P w hP1 hw (List.replicate n a))
+    simpa using this
+  rw [List.length_replicate] at h
+  linarith
+
+/-! ## Step 3: the headline -/
+
+/-- [UNAPPROVED STATEMENT] **HSI out of distribution.** Item models `P j` (each a
+sub-probability mass function on items), hyperprior weights `w` with `Σ w ≤ 1`, and a comparison
+member `j` of positive weight ("fresh SolInd": at the machine level, the untrained HSI prior
+itself — `hsi_ood_machines`). Write `excess j X y` for trained HSI's log loss on the test item
+`y` minus `j`'s (bits), and `trainGain j X` for `j`'s log loss on the training data `X` (item by
+item) minus HSI's.
+
+1. (Upper bound, Proposition E.) For ALL training data `X` and test items `y` to which `j` gives
+   positive probability: `excess j X y ≤ -log₂ w j + trainGain j X`.
+2. (It is attained.) With equality whenever `j` is the only member of positive weight that gives
+   `y` positive probability.
+3. (The penalty grows at least logarithmically off-distribution.) If a member `j₀` of positive
+   weight puts probability one on an item `a`, `b ≠ a`, and `j` gives `a`, `b` positive
+   probability, then after training on `n` copies of `a`:
+   `excess j aⁿ b ≥ log₂(n+1) - (-log₂ w j₀ - log₂ P_j(b))`.
+4. (And no faster, if the class can hedge.) If moreover a member `i` of positive weight
+   dominates `(n/(n+1)) · P_{j₀}` and `(1/(n+1)) · P_j`, `n ≥ 1`, then
+   `excess j aⁿ b ≤ log₂(n+1) + 1/ln 2 - log₂ w i`.
+
+`example_ood_linear` shows that without a hedging member the penalty in 3 can be `n - 1` bits.
+The joint statement "training + test together lose at most `-log₂ w j` to `j`" is
+`Rate.totalExcess_le` at the dataset `X ++ [y]` and is not restated. -/
+theorem hsi_ood (hP : ∀ j, ∑' a, P j a ≤ 1) (hw : ∑' j, w j ≤ 1) {j : ℕ} (hw0 : w j ≠ 0) :
+    (∀ (xs : List α) (y : α), lik P j (xs ++ [y]) ≠ 0 →
+      excess P w j xs y ≤ -Real.logb 2 (w j).toReal + trainGain P w j xs) ∧
+    (∀ (xs : List α) (y : α), lik P j (xs ++ [y]) ≠ 0 → (∀ i, i ≠ j → w i * P i y = 0) →
+      excess P w j xs y = -Real.logb 2 (w j).toReal + trainGain P w j xs) ∧
+    (∀ (a b : α) (j₀ n : ℕ), a ≠ b → P j₀ a = 1 → w j₀ ≠ 0 → P j a ≠ 0 → P j b ≠ 0 →
+      Real.logb 2 ((n : ℝ) + 1) - (-Real.logb 2 (w j₀).toReal - Real.logb 2 (P j b).toReal)
+        ≤ excess P w j (List.replicate n a) b) ∧
+    (∀ (a b : α) (j₀ i n : ℕ), P j₀ a = 1 → w i ≠ 0 → 0 < n →
+      (∀ x, ((n : ℝ≥0∞) / ((n : ℝ≥0∞) + 1)) * P j₀ x ≤ P i x) →
+      (∀ x, ((n : ℝ≥0∞) + 1)⁻¹ * P j x ≤ P i x) → P j b ≠ 0 →
+      excess P w j (List.replicate n a) b
+        ≤ Real.logb 2 ((n : ℝ) + 1) + 1 / Real.log 2 - Real.logb 2 (w i).toReal) := by
+  have hP1 : ∀ j a, P j a ≤ 1 := fun j a => P_le_one P hP j a
+  refine ⟨fun xs y hl => ood_upper P w hP1 hw hw0 xs y hl,
+    fun xs y hl honly => ood_upper_attained P w hP1 hw hw0 xs y hl honly,
+    fun a b j₀ n hab hj₀ hw₀ ha hb =>
+      ood_lower P w hP1 hw a b (add_le_one_of_ne P hP hab) hj₀ hw₀ hw0 ha hb n,
+    fun a b j₀ i n hj₀ hwi hn hik hij hb =>
+      ood_offDistribution_upper P w hP1 hw a b hj₀ hwi n hn hik hij hb⟩
+
 end HsiLean.HsiOOD
+
+/-! ## The machine level -/
+
+namespace HsiLean.Monotone
+
+open HsiLean.HsiRateLength HsiLean.HsiOOD
+
+/-- [UNAPPROVED STATEMENT] **Proposition E about machines, with "fresh SolInd" = untrained HSI.**
+
+Let `V` be an effective enumeration of monotone machines containing every UTM and `w` any
+lower-semicomputable, everywhere-positive weights with `Σ w ≤ 1`. Then there are a UTM `U` and an
+index `k` of `U` in the enumeration such that
+
+(a) the untrained HSI prior `Σ_k' w_k' λ_{V k'}` equals `λ_U` on every non-empty string; and
+(b) for every dataset `X` of finite strings and every test string `y` to which `U` gives positive
+    probability (items read as content-given-length, `contentModel`):
+
+    `(trained HSI's log loss on y) - (-log₂ λ_U(y)) ≤ -log₂ w k + trainGain k X`,
+
+    where `trainGain k X = (λ_U's log loss on X, item by item) - (HSI's log loss on X)`.
+
+So the extra cost of a surprising test item, relative to the SAME prior used fresh, is at most
+what training gained on the training data, plus the constant `-log₂ w k`. -/
+theorem hsi_ood_machines (V : ℕ → Machine) (hV : UniformlyCE V)
+    (hU : ∀ U : Machine, IsUTM U → ∃ k, V k = U) (w : Weights) :
+    ∃ (U : Machine) (k : ℕ), IsUTM U ∧ V k = U ∧
+      (∀ x : List Bool, x ≠ [] → ∑' k', w k' * (V k').lam x = U.lam x) ∧
+      ∀ (X : List (List Bool)) (y : List Bool),
+        lik (contentModel fun k' => (V k').lamSm) k (X ++ [y]) ≠ 0 →
+        excess (contentModel fun k' => (V k').lamSm) w.toFun k X y
+          ≤ -Real.logb 2 (w.toFun k).toReal
+            + trainGain (contentModel fun k' => (V k').lamSm) w.toFun k X := by
+  obtain ⟨U, hUtm, hprior⟩ := hsi_prior_eq_utm V hV hU w
+  obtain ⟨k, hk⟩ := hU U hUtm
+  refine ⟨U, k, hUtm, hk, hprior, fun X y hl => ?_⟩
+  exact ood_upper _ _ (fun j a => apply_le_one ((V j).lamSm) a) w.tsum_le_one
+    (w.pos k).ne' X y hl
+
+end HsiLean.Monotone
