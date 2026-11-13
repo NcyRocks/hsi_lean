@@ -75,6 +75,14 @@ $n\log\frac{n+1}n\le\frac1{\ln 2}$. ∎
 **Corollary 7 (`ood_offDistribution_upper`).** In the setting of Theorem 3, if a member $i$ hedges
 between $j_0$ and $j$ at rate $\frac1{n+1}$: $\mathrm{excess}_j(a^n,b)\le\log(n+1)+\frac1{\ln2}-\log w_i$.
 
+**Example 8 (`example_ood_log`).** On `Bool`: the point mass on `true`, the fair coin, and for
+every $m\ge2$ the hedge $\frac{m-1}m\cdot$(point mass)$+\frac1m\cdot$(fair coin); weights
+$w_m=\frac1{(m+1)(m+2)}$ (they sum to one). After training on $N\ge1$ copies of `true`, trained
+HSI's log loss on `false` exceeds the fair coin's by at least $\log(N+1)-2$ and at most
+$\log(N+1)+\frac1{\ln2}+\log((N+2)(N+3))$ bits. So Corollary 7's hypotheses hold for all $N$ at
+once in a class satisfying all of `Rate.lean`'s hypotheses, and there the penalty is
+$\Theta(\log N)$.
+
 **Reading.** $\mathrm{gain}_k(X)$ is how much HSI beat the single model $k$ on the training data.
 So: *if one model explains the training data about as well as HSI does, a surprising test item
 costs about $\log(n+1)$ bits plus the price of naming the hedge.* The class of all l.s.c.
@@ -115,7 +123,7 @@ tuples; and $\sum_{v\in\alpha^n}\prod_if(v_i)=(\sum_af(a))^n\le1$. ∎
   but its example does not show that the bound is tight: there the bound is linear in $n$ while
   the example gives $\log(n+1)-C$. The bound is attained (Theorem 2, Theorem 4) only in classes
   that cannot hedge; in classes that can, the penalty in the example is $\log(n+1)$ up to the
-  price of the hedge (Theorem 3 + Corollary 7).
+  price of the hedge (Theorem 3 + Corollary 7; Example 8).
 - "Training + test together lose at most $-\log w_j$ to $j$" is `totalExcess_le` at $(X,y)$; not
   restated.
 

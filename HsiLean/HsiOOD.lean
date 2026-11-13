@@ -32,11 +32,12 @@ Throughout, the hypothesis on the models is only `∀ j a, P j a ≤ 1` (weaker 
   is at least `log₂(n+1) - C`.
 * `ood_linear`, `example_ood_linear` — in a class where the upper bound is attained the penalty
   grows LINEARLY in `n`.
-* `ood_upper_hedged`, `ood_upper_hedged_replicate` — if the class contains a model hedging
+* `ood_upper_hedged`, `ood_upper_hedged_log`, `ood_offDistribution_upper` — if the class contains a model hedging
   between a model `k` and the comparison `j`, the penalty is at most
   `log₂(n+1) + 1/ln 2 + (cost of the hedge) + trainGain k X`: logarithmic when one model `k`
   explains the training data about as well as HSI does.
-* `hsi_ood` — the three main facts in one statement.
+* `example_ood_log` — an explicit class with all hedges: the penalty there is `Θ(log n)`.
+* `hsi_ood` — the main facts in one statement.
 * `hsi_ood_machines` — Proposition E about machines, with "fresh SolInd" = the untrained HSI prior.
 * `mixL_perm`, `card_mul_mixL_le_one` — HSI is exchangeable, hence cannot learn item order.
 -/
