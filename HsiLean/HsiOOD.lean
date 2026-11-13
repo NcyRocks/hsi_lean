@@ -551,6 +551,110 @@ theorem ood_offDistribution_upper (hP1 : ∀ j a, P j a ≤ 1) (hw : ∑' j, w j
   rw [List.length_replicate] at h
   linarith
 
+/-! ### A class in which the penalty is logarithmic (vacuity guard for the hedged bound) -/
+
+/-- Example class on `Bool`: model `0` is the point mass on `true`, model `1` the fair coin, and
+model `n + 2` the hedge `((n+1)/(n+2)) · (point mass) + (1/(n+2)) · (fair coin)`. -/
+noncomputable def exQ : ℕ → Bool → ℝ≥0∞
+  | 0, x => if x then 1 else 0
+  | 1, _ => 2⁻¹
+  | (n + 2), x => (((n + 1 : ℕ) : ℝ≥0∞) / (((n + 1 : ℕ) : ℝ≥0∞) + 1)) * (if x then 1 else 0)
+      + (((n + 1 : ℕ) : ℝ≥0∞) + 1)⁻¹ * 2⁻¹
+
+/-- Example weights `1 / ((m+1)(m+2))`, which sum to one. -/
+noncomputable def exV : ℕ → ℝ≥0∞ := fun m =>
+  ENNReal.ofReal (1 / (((m : ℝ) + 1) * ((m : ℝ) + 2)))
+
+lemma hedge_sum (N : ℝ≥0∞) (hN : N ≠ ⊤) :
+    (N / (N + 1) * 0 + (N + 1)⁻¹ * 2⁻¹) + (N / (N + 1) * 1 + (N + 1)⁻¹ * 2⁻¹) = 1 := by
+  have h2 : (N + 1)⁻¹ * 2⁻¹ + (N + 1)⁻¹ * 2⁻¹ = (N + 1)⁻¹ := by
+    rw [← mul_add, ENNReal.inv_two_add_inv_two, mul_one]
+  calc (N / (N + 1) * 0 + (N + 1)⁻¹ * 2⁻¹) + (N / (N + 1) * 1 + (N + 1)⁻¹ * 2⁻¹)
+      = N / (N + 1) + ((N + 1)⁻¹ * 2⁻¹ + (N + 1)⁻¹ * 2⁻¹) := by ring
+    _ = N * (N + 1)⁻¹ + (N + 1)⁻¹ := by rw [h2, div_eq_mul_inv]
+    _ = (N + 1) * (N + 1)⁻¹ := by ring
+    _ = 1 := ENNReal.mul_inv_cancel (by simp) (by simp [hN])
+
+lemma exQ_sub (j : ℕ) : ∑' a, exQ j a ≤ 1 := by
+  rw [tsum_bool]
+  match j with
+  | 0 => simp [exQ]
+  | 1 => simp [exQ, ENNReal.inv_two_add_inv_two]
+  | (n + 2) =>
+    simp only [exQ, Bool.false_eq_true, if_false, if_true]
+    exact (hedge_sum _ (by simp)).le
+
+lemma exV_toReal (m : ℕ) : (exV m).toReal = 1 / (((m : ℝ) + 1) * ((m : ℝ) + 2)) :=
+  ENNReal.toReal_ofReal (by positivity)
+
+lemma exV_ne_zero (m : ℕ) : exV m ≠ 0 :=
+  (ENNReal.ofReal_pos.mpr (by positivity)).ne'
+
+lemma exV_sub : ∑' m, exV m ≤ 1 := by
+  apply ENNReal.tsum_le_of_sum_range_le
+  intro N
+  have key : ∀ N : ℕ, ∑ m ∈ Finset.range N, (1 / (((m : ℝ) + 1) * ((m : ℝ) + 2)))
+      = 1 - 1 / ((N : ℝ) + 1) := by
+    intro N
+    induction N with
+    | zero => simp
+    | succ N ih =>
+      rw [Finset.sum_range_succ, ih]
+      push_cast
+      field_simp
+      ring
+  unfold exV
+  rw [← ENNReal.ofReal_sum_of_nonneg (fun m _ => by positivity), key]
+  refine ENNReal.ofReal_le_one.mpr ?_
+  have : (0 : ℝ) ≤ 1 / ((N : ℝ) + 1) := by positivity
+  linarith
+
+/-- [UNAPPROVED STATEMENT] **A class in which the out-of-distribution penalty is logarithmic.**
+There is a class on `Bool` (the point mass on `true`, the fair coin, and for every `m ≥ 2` the
+hedge `((m-1)/m) · (point mass) + (1/m) · (fair coin)`; weights `1/((m+1)(m+2))`) satisfying all
+of `Rate.lean`'s hypotheses in which, after training on `N = n + 1` copies of `true`, trained
+HSI's log loss on `false` exceeds the fair coin's by
+
+at least `log₂(N+1) - 2` and at most `log₂(N+1) + 1/ln 2 + log₂((n+3)(n+4))` bits.
+
+So the hypotheses of `ood_offDistribution_upper` are satisfiable for every `N` at once, and in
+this class the penalty is between `log₂ N` and about `3 log₂ N`. -/
+theorem example_ood_log :
+    ∃ (P : ℕ → Bool → ℝ≥0∞) (w : ℕ → ℝ≥0∞), (∀ j, ∑' a, P j a ≤ 1) ∧ ∑' j, w j ≤ 1 ∧
+      ∀ n : ℕ,
+        Real.logb 2 (((n + 1 : ℕ) : ℝ) + 1) - 2
+          ≤ excess P w 1 (List.replicate (n + 1) true) false ∧
+        excess P w 1 (List.replicate (n + 1) true) false
+          ≤ Real.logb 2 (((n + 1 : ℕ) : ℝ) + 1) + 1 / Real.log 2
+            + Real.logb 2 (((n : ℝ) + 3) * ((n : ℝ) + 4)) := by
+  refine ⟨exQ, exV, exQ_sub, exV_sub, fun n => ⟨?_, ?_⟩⟩
+  · have hP1 : ∀ j a, exQ j a ≤ 1 := fun j a => (ENNReal.le_tsum a).trans (exQ_sub j)
+    have h := ood_lower exQ exV hP1 exV_sub true false
+      (add_le_one_of_ne exQ exQ_sub (by decide)) (j₀ := 0) (by simp [exQ]) (exV_ne_zero 0)
+      (j := 1) (exV_ne_zero 1) (by simp [exQ]) (by simp [exQ]) (n + 1)
+    have e1 : Real.logb 2 (exV 0).toReal = -1 := by
+      rw [exV_toReal]
+      have : (1 : ℝ) / ((((0 : ℕ) : ℝ) + 1) * (((0 : ℕ) : ℝ) + 2)) = 2⁻¹ := by norm_num
+      rw [this, Real.logb_inv, Real.logb_self_eq_one (by norm_num)]
+    have e2 : Real.logb 2 (exQ 1 false).toReal = -1 := by
+      simp [exQ, Real.logb_inv]
+    rw [e1, e2] at h
+    push_cast at h ⊢
+    linarith
+  · have hP1 : ∀ j a, exQ j a ≤ 1 := fun j a => (ENNReal.le_tsum a).trans (exQ_sub j)
+    have h := ood_offDistribution_upper exQ exV hP1 exV_sub true false (j₀ := 0)
+      (by simp [exQ]) (i := n + 2) (j := 1) (exV_ne_zero _) (n + 1) (Nat.succ_pos n)
+      (by intro x; simp only [exQ]; exact le_self_add)
+      (by intro x; simp only [exQ]; exact le_add_self)
+      (by simp [exQ])
+    have e : (exV (n + 2)).toReal = (((n : ℝ) + 3) * ((n : ℝ) + 4))⁻¹ := by
+      rw [exV_toReal, one_div]
+      push_cast
+      congr 1
+      ring
+    rw [e, Real.logb_inv] at h
+    linarith
+
 /-! ## Step 3: the headline -/
 
 /-- [UNAPPROVED STATEMENT] **HSI out of distribution.** Item models `P j` (each a
