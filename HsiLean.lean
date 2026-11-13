@@ -16,3 +16,4 @@ import HsiLean.TopModels
 import HsiLean.LossBound
 import HsiLean.ThompsonLogLoss
 import HsiLean.ThompsonO2
+import HsiLean.HsiOOD
